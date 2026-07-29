@@ -64,7 +64,7 @@ fi
 # ————————————————————————————————————————————————————————————————
 echo "--- 端口监听 ---"
 
-PORTS=$(ss -tlnp 2>/dev/null | grep sing-box | awk '{print $4}' | grep -oP '\d+$' | sort -n | tr '\n' ' ' || true)
+PORTS=$(ss -tlnp 2>/dev/null | grep sing-box | awk '{print $4}' | grep -oE '[0-9]+$' | sort -n | tr '\n' ' ' || true)
 if [ -n "$PORTS" ]; then
     ok "监听端口: $PORTS"
     PASS=$((PASS + 1))

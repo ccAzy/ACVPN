@@ -7,6 +7,7 @@
 # ===================================================================
 
 set -euo pipefail
+trap 'rm -f /tmp/bbrv3.deb 2>/dev/null' EXIT
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; WHITE='\033[1;37m'; N='\033[0m'
@@ -84,9 +85,13 @@ for dep in $DEPS; do
     command -v "$dep" >/dev/null 2>&1 && continue
     TO_INSTALL="$TO_INSTALL $dep"
 done
-[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null || warn "依赖安装失败: $TO_INSTALL"; }
+[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null; }
+for dep in curl jq; do
+    command -v "$dep" >/dev/null 2>&1 || { fail "关键依赖缺失: $dep，请先执行 apt-get install -y curl jq"; exit 1; }
+done
 
 PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo "unknown")
+[ "$PUBLIC_IP" = "unknown" ] && warn "无法获取公网 IP，网络可能受限"
 
 # ── 幂等检测 ──
 CHECKPOINT="/etc/.ACVPN-optimized"
@@ -166,6 +171,9 @@ install_bbrv3() {
     if grep -q '^GRUB_TIMEOUT=0' /etc/default/grub 2>/dev/null; then
         sed -i 's/^GRUB_TIMEOUT=0/GRUB_TIMEOUT=10/' /etc/default/grub
         update-grub 2>/dev/null || true
+        if grep -q '^GRUB_TIMEOUT=0' /etc/default/grub 2>/dev/null; then
+            warn "GRUB_TIMEOUT 仍为 0（/etc/default/grub 可能有重复条目），建议手动检查"
+        fi
     fi
 
     info "新内核安装后，旧内核仍在 grub 菜单中"
@@ -237,6 +245,9 @@ elif [ -f "$CHECKPOINT" ]; then
 else
     systemctl stop sb xr 2>/dev/null || true
     systemctl disable sb xr 2>/dev/null || true
+    pkill -15 -f sing-box 2>/dev/null || true
+    pkill -15 -f xray 2>/dev/null || true
+    sleep 2
     pkill -9 -f sing-box 2>/dev/null || true
     pkill -9 -f xray 2>/dev/null || true
     rm -rf /etc/s-box /root/agsbx /usr/local/etc/argosbx \

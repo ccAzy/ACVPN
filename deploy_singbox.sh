@@ -76,7 +76,10 @@ for dep in $DEPS; do
     command -v "$dep" >/dev/null 2>&1 && continue
     TO_INSTALL="$TO_INSTALL $dep"
 done
-[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null || warn "依赖安装失败: $TO_INSTALL"; }
+[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null; }
+for dep in curl jq; do
+    command -v "$dep" >/dev/null 2>&1 || { fail "关键依赖缺失: $dep，请先执行 apt-get install -y curl jq"; exit 1; }
+done
 
 PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo "unknown")
 
@@ -179,6 +182,7 @@ EOSUB
     else
         warn "订阅配置产物未生成（sb 菜单结构可能已变更）"
         info "手动: sb → 3 → 8 → 1 配置订阅"
+        return 1
     fi
 }
 
@@ -189,8 +193,8 @@ wait_subscription() {
     for i in $(seq 1 30); do
         sleep 2
         echo -n "."
-        # 订阅由 busybox httpd 提供
-        SUB_PORT=$(ss -tlnp 2>/dev/null | grep -i 'busybox' | awk '{print $4}' | grep -oP '\d+$' | head -1 || echo "")
+        # 订阅由 httpd 提供（busybox / lighttpd 等）
+        SUB_PORT=$(ss -tlnp 2>/dev/null | grep -iE 'busybox|httpd' | awk '{print $4}' | grep -oE '[0-9]+$' | head -1 || echo "")
         [ -n "$SUB_PORT" ] && break
     done
     echo ""
@@ -204,6 +208,10 @@ wait_subscription() {
 
 # ── Hysteria2 + Tuic 端口跳跃 ──
 config_port_hopping() {
+    if [ ! -f /etc/s-box/sb.json ]; then
+        warn "sb.json 不存在，跳过端口跳跃配置"
+        return 1
+    fi
     info "配置端口跳跃..."
     # 从 sb.json 获取各协议监听端口
     HY_PORT=$(jq -r '.inbounds[] | select(.type=="hysteria2") | .listen_port' /etc/s-box/sb.json 2>/dev/null || echo "")
@@ -266,8 +274,10 @@ setup_warp() {
 0
 0
 EOSUB
-    if [ -f /etc/s-box/sbwpph ]; then
+    if [ -f /etc/s-box/sbwpph ] && pgrep -f sbwpph >/dev/null; then
         ok "WARP-plus-Socks5 已安装并运行"
+    elif [ -f /etc/s-box/sbwpph ]; then
+        warn "WARP 文件存在但进程未运行，尝试手动启动: sb → 14 → 1"
     else
         warn "WARP 安装失败（sb 菜单结构或网络问题）"
         info "稍后手动重试: sb → 14 → 1 安装 WARP"
@@ -347,14 +357,14 @@ check_env
 DEPLOY_OK=true
 
 step "1" "安装 sing-box"
-install_singbox_yg
+install_singbox_yg || DEPLOY_OK=false
 
 step "2" "配置订阅链接"
-setup_subscription
-wait_subscription
+setup_subscription || DEPLOY_OK=false
+wait_subscription || true
 
 step "3" "端口跳跃（Hy2 + Tuic）"
-config_port_hopping
+config_port_hopping || true
 
 step "4" "Argo 临时隧道"
 start_argo || DEPLOY_OK=false
@@ -373,7 +383,7 @@ setup_domain_routing
 # ── 仅完全成功才写幂等标记 ──
 $DEPLOY_OK && touch "$CHECKPOINT"
 # ── 最后显示订阅链接 ──
-SUB_PORT_FINAL=$(ss -tlnp 2>/dev/null | grep -i busybox | awk '{print $4}' | grep -oP '\d+$' | head -1 || echo "")
+SUB_PORT_FINAL=$(ss -tlnp 2>/dev/null | grep -iE 'busybox|httpd' | awk '{print $4}' | grep -oE '[0-9]+$' | head -1 || echo "")
 if [ -n "$SUB_PORT_FINAL" ]; then
     echo ""
     info "━━━ 订阅链接 ━━━"
@@ -415,7 +425,8 @@ if $DEPLOY_OK; then
     info "重启后可安全重跑本脚本（幂等跳过）"
     exit 0
 else
-    warn "部署部分失败（Argo 隧道），其余功能可能正常"
-    info "修复后可手动重跑: sb → 3 → 3 → 1 → 1"
+    warn "部署未完全成功，检查上方失败步骤并修复后重试"
+    info "清除标记: rm -f $CHECKPOINT"
+    info "重试: curl -fsSL .../deploy_singbox.sh | bash"
     exit 1
 fi
