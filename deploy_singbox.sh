@@ -21,9 +21,9 @@ logo() {
 }
 
 info() { echo -e "${CYAN}[*]${N}   $*"; }
-ok()    { echo -e "${GREEN}[✓]${N}   $1"; }
-warn()  { echo -e "${YELLOW}[!]${N}   $1"; }
-fail()  { echo -e "${RED}[✗]${N}   $1"; }
+ok()  { echo -e "${GREEN}[✓]${N}   $*"; }
+warn(){ echo -e "${YELLOW}[!]${N}   $*"; }
+fail(){ echo -e "${RED}[✗]${N}   $*"; }
 step() {
     echo ""
     echo -e "${YELLOW}╔══════════════════════════════════════════════════╗${N}"
@@ -82,6 +82,7 @@ for dep in curl jq; do
 done
 
 PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo "unknown")
+[ "$PUBLIC_IP" = "unknown" ] && warn "无法获取公网 IP，网络可能受限"
 
 # ── 幂等检测 ──
 CHECKPOINT="/etc/.ACVPN-singbox"
@@ -287,8 +288,8 @@ EOSUB
 
 # ── 域名分流（AI + 流媒体 + 搜索引擎走 WARP）──
 setup_domain_routing() {
-    if [ ! -f /etc/s-box/sbwpph ]; then
-        warn "WARP 未安装，跳过域名分流"
+    if [ ! -f /etc/s-box/sbwpph ] || ! pgrep -f sbwpph >/dev/null; then
+        warn "WARP 未运行，跳过域名分流"
         return 0
     fi
     info "配置域名分流（WARP-socks5-ipv4 优先）..."

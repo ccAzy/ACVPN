@@ -74,7 +74,11 @@ echo "--- 清理 crontab ---"
 if crontab -l &>/dev/null; then
     BEFORE=$(crontab -l 2>/dev/null | wc -l)
     NEW_CRON=$(crontab -l 2>/dev/null | grep -vE 'sing-box|cloudflared|argo|busybox|websbox|/usr/bin/sb')
-    echo "$NEW_CRON" | crontab - 2>/dev/null || warn "crontab 写入失败，请手动检查 crontab -e"
+    if [ -z "$NEW_CRON" ]; then
+        crontab -r 2>/dev/null || true
+    else
+        echo "$NEW_CRON" | crontab - 2>/dev/null || warn "crontab 写入失败，请手动检查 crontab -e"
+    fi
     AFTER=$(crontab -l 2>/dev/null | wc -l)
     REMOVED=$((BEFORE - AFTER))
     [ $REMOVED -gt 0 ] && ok "crontab: 移除 ${REMOVED} 条 sb 相关条目" || info "crontab 无 sb 条目需清理"

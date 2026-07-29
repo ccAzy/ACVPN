@@ -24,9 +24,9 @@ logo() {
 }
 
 info() { echo -e "${CYAN}[*]${N}   $*"; }
-ok()    { echo -e "${GREEN}[✓]${N}   $1"; }
-warn()  { echo -e "${YELLOW}[!]${N}   $1"; }
-fail()  { echo -e "${RED}[✗]${N}   $1"; }
+ok()    { echo -e "${GREEN}[✓]${N}   $*"; }
+warn()  { echo -e "${YELLOW}[!]${N}   $*"; }
+fail()  { echo -e "${RED}[✗]${N}   $*"; }
 step() {
     echo ""
     echo -e "${YELLOW}╔══════════════════════════════════════════════════╗${N}"
