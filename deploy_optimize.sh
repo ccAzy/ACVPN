@@ -79,21 +79,7 @@ ARCH=$(uname -m)
 HOSTNAME=$(hostname)
 case "$ARCH" in x86_64) DEB_ARCH="amd64" ;; aarch64) DEB_ARCH="arm64" ;; *) DEB_ARCH="$ARCH" ;; esac
 
-DEPS="curl jq"
-TO_INSTALL=""
-for dep in $DEPS; do
-    command -v "$dep" >/dev/null 2>&1 && continue
-    TO_INSTALL="$TO_INSTALL $dep"
-done
-[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null || true; }
-for dep in curl jq; do
-    command -v "$dep" >/dev/null 2>&1 || { fail "关键依赖缺失: $dep，请先执行 apt-get install -y curl jq"; exit 1; }
-done
-
-PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo "unknown")
-[ "$PUBLIC_IP" = "unknown" ] && warn "无法获取公网 IP，网络可能受限"
-
-# ── 幂等检测 ──
+# ── 幂等检测（提前执行，已优化服务器重复运行无需联网/装依赖） ──
 CHECKPOINT="/etc/.ACVPN-optimized"
 CUR_KERNEL=$(uname -r)
 
@@ -114,6 +100,23 @@ if [ -f "$CHECKPOINT" ]; then
         rm -f "$CHECKPOINT"
     fi
 fi
+
+DEPS="curl jq"
+TO_INSTALL=""
+for dep in $DEPS; do
+    command -v "$dep" >/dev/null 2>&1 && continue
+    TO_INSTALL="$TO_INSTALL $dep"
+done
+[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null || true; }
+for dep in curl jq; do
+    command -v "$dep" >/dev/null 2>&1 || { fail "关键依赖缺失: $dep，请先执行 apt-get install -y curl jq"; exit 1; }
+done
+
+# 获取公网 IP（多源回退）
+PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null) \
+  || PUBLIC_IP=$(curl -fsSL --max-time 5 https://icanhazip.com 2>/dev/null) \
+  || PUBLIC_IP="unknown"
+[ "$PUBLIC_IP" = "unknown" ] && warn "无法获取公网 IP，网络可能受限"
 
 # ── BBRv3 ──
 install_bbrv3() {
@@ -167,9 +170,17 @@ install_bbrv3() {
         dpkg -i /tmp/bbrv3.deb 2>/dev/null || { fail "BBRv3-max 安装失败"; return 1; }
     fi
 
+    # 验证新内核文件已就位（防止 dpkg 成功但内核未实际解包，重启后无法开机）
+    if ls /boot/vmlinuz-*bbrv3* >/dev/null 2>&1; then
+        ok "新内核文件已就位: $(ls /boot/vmlinuz-*bbrv3* 2>/dev/null | head -1)"
+    else
+        fail "未检测到 bbrv3 内核文件，安装可能未生效，中止重启"
+        return 1
+    fi
+
     # 确保 grub 菜单可见（部分 VPS 默认 timeout=0）
     if grep -q '^GRUB_TIMEOUT=0' /etc/default/grub 2>/dev/null; then
-        sed -i 's/^GRUB_TIMEOUT=0/GRUB_TIMEOUT=10/' /etc/default/grub
+        sed -i 's/^GRUB_TIMEOUT=0/GRUB_TIMEOUT=10/g' /etc/default/grub
         update-grub 2>/dev/null || true
         if grep -q '^GRUB_TIMEOUT=0' /etc/default/grub 2>/dev/null; then
             warn "GRUB_TIMEOUT 仍为 0（/etc/default/grub 可能有重复条目），建议手动检查"
