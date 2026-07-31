@@ -103,7 +103,7 @@ for unit in /etc/systemd/system/sing-box.service \
 done
 [ $COUNT -gt 0 ] && ok "已删除 ${COUNT} 个 systemd unit 文件" || info "无 unit 文件需清理"
 
-systemctl daemon-reload
+systemctl daemon-reload 2>/dev/null || true
 
 # ————————————————————————————————————————————————————————————————
 # 5. 删除 sb 相关目录和文件（不碰 /opt/cloudflared）

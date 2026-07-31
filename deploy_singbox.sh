@@ -76,7 +76,7 @@ for dep in $DEPS; do
     command -v "$dep" >/dev/null 2>&1 && continue
     TO_INSTALL="$TO_INSTALL $dep"
 done
-[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null; }
+[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null || true; }
 for dep in curl jq; do
     command -v "$dep" >/dev/null 2>&1 || { fail "关键依赖缺失: $dep，请先执行 apt-get install -y curl jq"; exit 1; }
 done
@@ -136,7 +136,7 @@ install_singbox_yg() {
     systemctl daemon-reload 2>/dev/null || true
 
     # 安装流程: 1 → ''(开放端口) → ''(最新内核) → ''(自签) → ''(随机端口) → ''(不共用)
-    printf '1\n\n\n\n\n' | sb 2>&1 || true
+    printf '1\n\n\n\n\n' | timeout 300 sb 2>&1 || true
 
     if [ -f /etc/s-box/sb.json ]; then
         ok "sing-box 安装完成！"
@@ -167,7 +167,7 @@ setup_subscription() {
     echo ""
     sleep 1
 
-    sb 2>&1 <<-EOSUB || true
+    timeout 120 sb 2>&1 <<-EOSUB || true
 3
 8
 1
@@ -400,7 +400,7 @@ if [ -n "$SUB_PORT_FINAL" ]; then
         echo ""
         echo "通用聚合:"
         echo "http://$PUBLIC_IP:$SUB_PORT_FINAL/$TOKEN/jhsub.txt"
-    elif curl -fsL -o /dev/null "http://localhost:$SUB_PORT_FINAL/jhsub.txt" 2>/dev/null; then
+    elif curl -fsL --max-time 5 -o /dev/null "http://localhost:$SUB_PORT_FINAL/jhsub.txt" 2>/dev/null; then
         echo ""
         echo "Clash / Mihomo:"
         echo "http://$PUBLIC_IP:$SUB_PORT_FINAL/clmi.yaml"

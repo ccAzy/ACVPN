@@ -85,7 +85,7 @@ for dep in $DEPS; do
     command -v "$dep" >/dev/null 2>&1 && continue
     TO_INSTALL="$TO_INSTALL $dep"
 done
-[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null; }
+[ -n "$TO_INSTALL" ] && { apt-get update -qq 2>/dev/null || true; apt-get install -y -qq $TO_INSTALL 2>/dev/null || true; }
 for dep in curl jq; do
     command -v "$dep" >/dev/null 2>&1 || { fail "关键依赖缺失: $dep，请先执行 apt-get install -y curl jq"; exit 1; }
 done

@@ -92,7 +92,7 @@ if [ -f /etc/s-box/argo.log ]; then
         ok "Argo 隧道: $ARGO_URL"
         PASS=$((PASS + 1))
         # 测试可达性
-        HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$ARGO_URL" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "$ARGO_URL" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
             ok "Argo 端点可达 (HTTP $HTTP_CODE)"
             PASS=$((PASS + 1))
@@ -121,7 +121,7 @@ if [ -f /etc/s-box/subport.log ] && [ -f /etc/s-box/subtoken.log ]; then
     if [ -n "$SERVER_IP" ]; then
         for fmt in clmi.yaml sbox.json jhsub.txt; do
             URL="http://${SERVER_IP}:${SUBPORT}/${SUBTOKEN}/${fmt}"
-            HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$URL" 2>/dev/null || echo "000")
+            HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "$URL" 2>/dev/null || echo "000")
             if [ "$HTTP_CODE" = "200" ]; then
                 ok "$fmt 可访问 (HTTP 200)"
                 PASS=$((PASS + 1))
