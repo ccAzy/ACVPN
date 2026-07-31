@@ -93,7 +93,7 @@ systemctl daemon-reload
 rm -rf /etc/s-box /usr/bin/sb /root/websbox
 
 # 6. 清理 iptables
-iptables -t nat -D PREROUTING -p udp --dport 40000:41000 -j DNAT --to-destination :34682 2>/dev/null
+iptables -t nat -L PREROUTING --line-numbers -n 2>/dev/null | grep -E 'dpts:40000:42000|dpts:43000:45000' | awk '{print $1}' | sort -rn | while read -r num; do iptables -t nat -D PREROUTING "$num" 2>/dev/null; done
 iptables -t nat -D POSTROUTING -m mark --mark 0x40000/0xff0000 -j MASQUERADE 2>/dev/null
 
 # 7. 清理 nftables
