@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # ===================================================================
 # ACVPN — sing-box 彻底清理脚本
 # 清除 sing-box / cloudflared(argo) / busybox / crontab / iptables / nftables

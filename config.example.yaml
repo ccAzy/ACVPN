@@ -12,6 +12,7 @@ server:
 # --- sing-box 配置 ---
 singbox:
   hysteria2_port_range: "40000:42000"
+  tuic_port_range: "43000:45000"
 
 # --- 域名分流（WARP-IPv6） ---
 split_domains:

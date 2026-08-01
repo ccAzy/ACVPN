@@ -14,7 +14,7 @@ description: >
 | `SKILL.md` | 本文件 — 完整部署指南 |
 | `deploy_optimize.sh` | **第1步** — BBRv3-max + 80+项网络暴力优化 + 自动重启 |
 | `deploy_singbox.sh` | **第2步** — sing-box 部署（订阅 + 端口跳跃 + Argo，全自动 heredoc） |
-| `deprecated/deploy_standalone.sh` | 旧版全自动合并脚本（功能已拆分） |
+| `deprecated/deploy_standalone.sh` | 旧版全自动合并脚本（功能已拆分，需 `--force` / `--continue` 才能运行） |
 | `cleanup.sh` | 独立清理脚本，7 步清理 + 4 项自动验证 |
 | `verify.sh` | 部署后验证（进程/端口/Argo/订阅/域名分流） |
 | `config.example.yaml` | 配置模板（IP、域名等可配置项） |

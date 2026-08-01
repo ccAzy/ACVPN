@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # ===================================================================
 # ACVPN — sing-box VPN 一键部署（需先执行 deploy_optimize.sh）
 # 用法: curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh | bash
@@ -187,21 +187,39 @@ EOSUB
     fi
 }
 
+# ── 获取订阅端口（多源探测） ──
+# 1) 权威来源: sb 生成的 subport.log
+# 2) 兜底: ss 扫描常见订阅服务进程（busybox httpd / lighttpd / nginx 等）
+get_sub_port() {
+    local port=""
+    if [ -f /etc/s-box/subport.log ]; then
+        port=$(tr -cd '0-9' < /etc/s-box/subport.log 2>/dev/null || true)
+        [ -n "$port" ] && { echo "$port"; return 0; }
+    fi
+    port=$(ss -tlnp 2>/dev/null | grep -iE 'busybox|httpd|lighttpd|nginx' | awk '{print $4}' | grep -oE '[0-9]+$' | head -1 || echo "")
+    echo "$port"
+}
+
 wait_subscription() {
     info "等待订阅服务启动..."
-    echo -n "    搜索订阅端口"
+    echo -n "    检测订阅端口"
     SUB_PORT=""
     for i in $(seq 1 30); do
         sleep 2
         echo -n "."
-        # 订阅由 httpd 提供（busybox / lighttpd 等）
-        SUB_PORT=$(ss -tlnp 2>/dev/null | grep -iE 'busybox|httpd' | awk '{print $4}' | grep -oE '[0-9]+$' | head -1 || echo "")
+        SUB_PORT=$(get_sub_port)
         [ -n "$SUB_PORT" ] && break
     done
     echo ""
 
     if [ -n "$SUB_PORT" ]; then
         ok "订阅端口: $SUB_PORT"
+        # 验证订阅服务真正响应 HTTP（防止端口误判）
+        if curl -fsL --max-time 5 -o /dev/null "http://127.0.0.1:$SUB_PORT/" 2>/dev/null; then
+            ok "订阅服务 HTTP 响应正常"
+        else
+            warn "端口 $SUB_PORT 暂未响应 HTTP（订阅服务可能仍在启动，稍后用 sb 检查）"
+        fi
     else
         warn "订阅服务超时未启动 (已等 60s)，稍后可用 sb 手动检查"
     fi
@@ -384,7 +402,7 @@ setup_domain_routing
 # ── 仅完全成功才写幂等标记 ──
 $DEPLOY_OK && touch "$CHECKPOINT"
 # ── 最后显示订阅链接 ──
-SUB_PORT_FINAL=$(ss -tlnp 2>/dev/null | grep -iE 'busybox|httpd' | awk '{print $4}' | grep -oE '[0-9]+$' | head -1 || echo "")
+SUB_PORT_FINAL=$(get_sub_port)
 if [ -n "$SUB_PORT_FINAL" ]; then
     echo ""
     info "━━━ 订阅链接 ━━━"

@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # ===================================================================
 # ACVPN — sing-box VPN 一键部署 (旧版，已弃用)
 # 请改用拆分后的两阶段脚本：
@@ -14,6 +14,28 @@ echo -e "\033[1;33m║  Step 1: bash <(curl -fsSL .../deploy_optimize.sh)  ║\0
 echo -e "\033[1;33m║  Step 2: curl -fsSL .../deploy_singbox.sh | bash   ║\033[0m"
 echo -e "\033[1;33m║  本脚本仅用于 --continue 续跑场景                   ║\033[0m"
 echo -e "\033[1;33m╚══════════════════════════════════════════════════════╝\033[0m"
+
+# ── 废弃保护：无 --force/--continue 授权参数直接拒绝执行（防误用） ──
+# 置于最前，确保误用时不做任何系统操作（apt 安装等）
+FORCE_ALLOW=false
+CONTINUE_ARG=false
+for arg in "$@"; do
+    [[ "$arg" == "--force" ]] && FORCE_ALLOW=true
+    [[ "$arg" == "--continue" ]] && CONTINUE_ARG=true
+done
+if [ "$#" -eq 0 ] || { ! $FORCE_ALLOW && ! $CONTINUE_ARG; }; then
+    echo ""
+    echo -e "\033[0;31m[FAIL] 本脚本已废弃，请使用拆分后的两阶段部署\033[0m"
+    echo ""
+    echo "  Step 1: bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_optimize.sh)"
+    echo "  Step 2: curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh | bash"
+    echo ""
+    echo "  若确需运行旧脚本，请显式加授权参数:"
+    echo "    bash deploy_standalone.sh --force       # 完整旧流程"
+    echo "    bash deploy_standalone.sh --continue    # 断点续跑"
+    echo ""
+    exit 1
+fi
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; WHITE='\033[1;37m'; PURPLE='\033[0;35m'; N='\033[0m'
 ok()   { echo -e "${GREEN}[OK]${N}  $*"; }
