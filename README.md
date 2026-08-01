@@ -13,7 +13,7 @@
 
 ACVPN 把**内核优化 + sing-box 部署 + 订阅生成**打包成两条命令。你负责买 VPS、粘贴命令、导入订阅；脚本负责剩下的一切。
 
-- 内核自动装上 BBRv3-max + 80+ 项网络参数极限调优
+- 内核自动装上 BBRv3-max + 30+ 项网络参数极限调优
 - sing-box 自动配好五协议 + 端口跳跃 + Argo 隧道 + WARP 域名分流
 - 订阅链接直接打印在终端，复制到客户端就能用
 
@@ -36,6 +36,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_opti
 装上 BBRv3-max 极致内核，把 TCP/UDP 参数拉到极限。跑完 10 秒后自动重启。
 
 > 2-5 分钟。SSH 断开是正常的，等 30 秒重新连。
+> 预检场景可用 `--no-reboot` 跳过自动重启，稍后手动 `reboot`。
 
 ### 第 2 步：部署 sing-box（重启后）
 

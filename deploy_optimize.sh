@@ -7,7 +7,22 @@
 # ===================================================================
 
 set -euo pipefail
-trap 'rm -f /tmp/bbrv3.deb 2>/dev/null' EXIT
+
+# ── 日志落盘（/var/log 可写时记录全程输出，失败排查有据可查） ──
+if [ -w /var/log ] && [ -d /var/log ]; then
+    LOG_FILE="/var/log/acvpn-optimize.log"
+    : > "$LOG_FILE" 2>/dev/null || true
+    exec > >(tee -a "$LOG_FILE") 2>&1 || true
+fi
+
+# ── 清理：退出/中断时删除临时文件（INT=130 / TERM=143 触发 EXIT trap） ──
+cleanup() { rm -f /tmp/bbrv3.deb /tmp/bbrv3.sha256 2>/dev/null || true; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# GitHub API 要求 User-Agent，否则限流（403），国内 VPS 更易触发
+UA="User-Agent: ACVPN-deploy/2.4.0"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; WHITE='\033[1;37m'; N='\033[0m'
@@ -39,19 +54,29 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo ""
     echo "ACVPN deploy_optimize.sh — 服务器暴力优化（BBRv3 + 网络极限压榨）"
     echo ""
-    echo "用法: bash deploy_optimize.sh"
+    echo "用法: bash deploy_optimize.sh [--no-reboot]"
+    echo ""
+    echo "参数:"
+    echo "  --no-reboot   完成优化后不自动重启（手动重启生效）"
     echo ""
     echo "功能:"
     echo "  1. 清理旧 sing-box 残留"
     echo "  2. 安装 BBRv3-max 极致内核"
-    echo "  3. 应用 80+ 项网络暴力优化"
+    echo "  3. 应用网络暴力优化（TCP/UDP 缓冲区、RSS 多队列、H2/Tuic 专项）"
     echo "  4. 提升系统资源限制"
-    echo "  5. 自动重启"
+    echo "  5. 校验 GRUB 默认引导新内核"
+    echo "  6. 自动重启"
     echo ""
     echo "更多信息: https://github.com/ccAzy/ACVPN"
     echo ""
     exit 0
 fi
+
+# ── 参数解析 ──
+NO_REBOOT=false
+for arg in "$@"; do
+    [[ "$arg" == "--no-reboot" ]] && NO_REBOOT=true
+done
 
 # ── 环境预检 ──
 check_env() {
@@ -131,7 +156,7 @@ install_bbrv3() {
     [ "$DEB_ARCH" = "amd64" ] && TAG_ARCH="x86_64"
 
     # 获取最近 2 个 release，优先找 -max 极致版
-    local JSON_DATA=$(curl -fsL --connect-timeout 10 --max-time 20 "$RELEASES_API" 2>/dev/null || echo "")
+    local JSON_DATA=$(curl -fsL -H "$UA" --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 20 "$RELEASES_API" 2>/dev/null || echo "")
     if [ -n "$JSON_DATA" ]; then
         DOWNLOAD_URL=$(echo "$JSON_DATA" | jq -r '.[].assets[]?.browser_download_url // empty' | grep -F "joeyblog-bbrv3-max" | grep -F "$DEB_ARCH.deb" | head -1)
     fi
@@ -140,14 +165,14 @@ install_bbrv3() {
     if [ -z "$DOWNLOAD_URL" ]; then
         warn "API 获取失败，从 kernel.org 获取最新内核版本..."
         local raw_ver
-        raw_ver=$(curl -fsSL --max-time 15 https://www.kernel.org/finger_banner 2>/dev/null | \
+        raw_ver=$(curl -fsSL --retry 2 --retry-delay 2 --max-time 15 https://www.kernel.org/finger_banner 2>/dev/null | \
           awk -F: '/latest stable version/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')
         if [ -n "$raw_ver" ]; then
             [[ "$raw_ver" =~ ^[0-9]+\.[0-9]+$ ]] && raw_ver="${raw_ver}.0"
             local TAG="${TAG_ARCH}-${raw_ver}"
             info "尝试 ${TAG}-max..."
             local ASSET_JSON
-            ASSET_JSON=$(curl -fsL --connect-timeout 15 --max-time 30 "https://api.github.com/repos/ccAzy/Actions-bbr-v3/releases/tags/${TAG}-max" 2>/dev/null || echo "")
+            ASSET_JSON=$(curl -fsL -H "$UA" --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 30 "https://api.github.com/repos/ccAzy/Actions-bbr-v3/releases/tags/${TAG}-max" 2>/dev/null || echo "")
             if [ -n "$ASSET_JSON" ]; then
                 DOWNLOAD_URL=$(echo "$ASSET_JSON" | jq -r '.assets[]?.browser_download_url // empty' | grep -F "joeyblog-bbrv3-max" | grep -F "$DEB_ARCH.deb" | head -1)
             fi
@@ -157,12 +182,32 @@ install_bbrv3() {
     [ -z "$DOWNLOAD_URL" ] && { fail "无法获取任何可用的 BBRv3 下载地址（API 和 kernel.org 回退均失败）"; return 1; }
 
     info "下载 BBRv3-max..."
-    if curl -fL# --connect-timeout 15 --max-time 60 -o /tmp/bbrv3.deb "$DOWNLOAD_URL" && [ -s /tmp/bbrv3.deb ]; then
+    if curl -fL# -H "$UA" --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 15 --max-time 120 -o /tmp/bbrv3.deb "$DOWNLOAD_URL" && [ -s /tmp/bbrv3.deb ]; then
         echo ""
-        ok "BBRv3-max 下载成功"
+        ok "BBRv3-max 下载成功 ($(du -h /tmp/bbrv3.deb 2>/dev/null | awk '{print $1}'))"
     else
         fail "BBRv3-max 下载失败"
         return 1
+    fi
+
+    # SHA256 完整性校验（SHA256SUMS 不可得时仅警告，不阻断安装）
+    local pkg_name=$(basename "$DOWNLOAD_URL")
+    if curl -fsSL -H "$UA" --retry 2 --retry-delay 2 --max-time 20 -o /tmp/bbrv3.sha256 "$(dirname "$DOWNLOAD_URL")/SHA256SUMS" 2>/dev/null && [ -s /tmp/bbrv3.sha256 ]; then
+        local expected actual
+        expected=$(awk -v f="$pkg_name" '$2 == f || $2 == "*" f {print $1; exit}' /tmp/bbrv3.sha256 2>/dev/null || true)
+        if [ -n "$expected" ]; then
+            actual=$(sha256sum /tmp/bbrv3.deb 2>/dev/null | awk '{print $1}' || true)
+            if [ "$expected" = "$actual" ]; then
+                ok "SHA256 校验通过"
+            else
+                fail "SHA256 校验失败，下载可能损坏（已删除，请重试）"
+                return 1
+            fi
+        else
+            warn "SHA256SUMS 中未找到 $pkg_name，跳过校验"
+        fi
+    else
+        warn "SHA256SUMS 获取失败，跳过校验"
     fi
 
     if ! dpkg -i /tmp/bbrv3.deb 2>/dev/null; then
@@ -199,9 +244,26 @@ apply_sysctl() {
 
     cat > /etc/sysctl.d/99-ACVPN-brutal.conf << 'SYSCTL'
 # ACVPN 暴力网络优化
+# ── TCP 传输 ──
 net.ipv4.tcp_limit_output_bytes = 4194304
 net.ipv4.tcp_notsent_lowat = 4294967295
 net.ipv4.tcp_autocorking = 0
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_adv_win_scale = -2
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_max_tw_buckets = 5000
+net.ipv4.tcp_keepalive_time = 1200
+net.ipv4.tcp_keepalive_intvl = 30
+net.ipv4.tcp_keepalive_probes = 5
+# ── UDP / Hysteria2 / Tuic 专项（低延迟 QUIC 友好） ──
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
+net.core.busy_read = 64
+net.core.busy_poll = 64
+# ── 缓冲区 / 队列 ──
 net.core.rmem_max = 134217728
 net.core.wmem_max = 134217728
 net.ipv4.tcp_rmem = 4096 87380 134217728
@@ -209,16 +271,98 @@ net.ipv4.tcp_wmem = 4096 65536 134217728
 net.core.netdev_max_backlog = 500000
 net.core.somaxconn = 65535
 net.ipv4.tcp_max_syn_backlog = 300000
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_slow_start_after_idle = 0
+# ── 出站连接端口池 ──
+net.ipv4.ip_local_port_range = 1024 65535
+# ── 拥塞控制 ──
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_adv_win_scale = -2
+# ── 内存压力（512MB 小内存 VPS 友好） ──
+vm.swappiness = 10
+vm.vfs_cache_pressure = 50
 SYSCTL
 
     sysctl --system >/dev/null 2>&1 || warn "sysctl 应用部分失败，请手动检查 /etc/sysctl.d/"
     ok "网络参数已应用 (持久化至 /etc/sysctl.d/99-ACVPN-brutal.conf)"
+}
+
+# ── RSS 多队列（软中断负载均衡，多核 VPS 吞吐提升明显） ──
+# 仅做 RPS/RFS + 尽力 ethtool 队列扩容；驱动不支持/虚拟化环境自动降级跳过
+apply_rss() {
+    command -v ethtool >/dev/null 2>&1 || { info "ethtool 未安装，跳过 RSS（仅影响多核压榨，不致命）"; return 0; }
+    command -v ip >/dev/null 2>&1 || { warn "ip 命令不可用，跳过 RSS"; return 1; }
+    local iface
+    iface=$(ip route 2>/dev/null | awk '/default/ {print $5; exit}' || true)
+    if [ -z "$iface" ] || [ ! -d "/sys/class/net/$iface" ]; then
+        warn "无法识别默认网卡，跳过 RSS"; return 1
+    fi
+
+    local ncpu
+    ncpu=$(nproc 2>/dev/null || echo 1)
+    [ "$ncpu" -le 1 ] && { info "单核 CPU，跳过 RSS"; return 0; }
+
+    # 计算全 CPU 掩码（如 4 核 → f）
+    local mask=0 i
+    for ((i = 0; i < ncpu; i++)); do mask=$((mask | (1 << i))); done
+    local mask_hex
+    mask_hex=$(printf '%x' "$mask")
+
+    # 尽力提升网卡合并队列数（虚拟网卡驱动通常不支持，失败无妨）
+    local cur
+    cur=$(ethtool -l "$iface" 2>/dev/null | awk -F: '/^Combined:/ {gsub(/ /,"",$2); print $2}' | head -1 || true)
+    if [ -n "$cur" ] && [ "$cur" -lt "$ncpu" ]; then
+        ethtool -L "$iface" combined "$ncpu" 2>/dev/null && ok "网卡 $iface 队列数提升至 $ncpu" || true
+    fi
+
+    # RPS/RFS：让所有 rx 队列分摊到全部 CPU
+    local rx_ok=false
+    if [ -w /proc/sys/net/core/rps_sock_flow_entries ]; then
+        echo 32768 > /proc/sys/net/core/rps_sock_flow_entries 2>/dev/null || true
+    fi
+    local rx
+    for rx in /sys/class/net/"$iface"/queues/rx-*/rps_cpus; do
+        [ -w "$rx" ] || continue
+        echo "$mask_hex" > "$rx" 2>/dev/null || continue
+        # 同队列的 flow_cnt（RFS 哈希表）
+        local cnt="${rx%/rps_cpus}/rps_flow_cnt"
+        [ -w "$cnt" ] && echo 4096 > "$cnt" 2>/dev/null || true
+        rx_ok=true
+    done
+    $rx_ok && ok "RPS/RFS 已启用: 全部 $ncpu 核参与软中断负载均衡" || warn "RPS 配置失败（内核/驱动限制）"
+
+    # 持久化：RPS 是 /proc 运行时接口，重启丢失 → systemd oneshot 在开机时恢复
+    cat > /etc/systemd/system/acvpn-rss.service << 'UNIT'
+[Unit]
+Description=ACVPN RPS/RFS softirq load balancing
+After=network.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/acvpn-rss.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+UNIT
+    cat > /usr/local/sbin/acvpn-rss.sh << 'RSS'
+#!/bin/bash
+# ACVPN RSS 恢复脚本（由 acvpn-rss.service 在开机时执行）
+IFACE=$(ip route 2>/dev/null | awk '/default/ {print $5; exit}')
+[ -z "$IFACE" ] && exit 0
+NCPU=$(nproc 2>/dev/null || echo 1)
+[ "$NCPU" -le 1 ] && exit 0
+MASK=0
+for ((i = 0; i < NCPU; i++)); do MASK=$((MASK | (1 << i))); done
+MH=$(printf '%x' "$MASK")
+[ -w /proc/sys/net/core/rps_sock_flow_entries ] && echo 32768 > /proc/sys/net/core/rps_sock_flow_entries 2>/dev/null
+for RX in /sys/class/net/"$IFACE"/queues/rx-*/rps_cpus; do
+    [ -w "$RX" ] || continue
+    echo "$MH" > "$RX" 2>/dev/null
+    CNT="${RX%/rps_cpus}/rps_flow_cnt"
+    [ -w "$CNT" ] && echo 4096 > "$CNT" 2>/dev/null
+done
+exit 0
+RSS
+    chmod +x /usr/local/sbin/acvpn-rss.sh
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl enable acvpn-rss.service >/dev/null 2>&1 && ok "RSS 已持久化 (acvpn-rss.service 开机自启)" || warn "RSS 持久化失败（重启后需重配）"
 }
 
 boost_limits() {
@@ -235,7 +379,51 @@ root hard nproc 655360
 LIMITS
     ok "资源限制已提升"
 }
+# ── GRUB 默认内核校验：确保重启后引导到 BBRv3，而非旧内核 ──
+ensure_grub_boot() {
+    [ -f /boot/grub/grub.cfg ] || { warn "未找到 /boot/grub/grub.cfg，跳过默认内核校验"; return 1; }
 
+    local entries=()
+    mapfile -t entries < <(grep -oP "menuentry '\K[^']+" /boot/grub/grub.cfg 2>/dev/null || true)
+    [ "${#entries[@]}" -eq 0 ] && { warn "无法解析 grub.cfg 菜单项，跳过默认内核校验"; return 1; }
+
+    local idx=0 target=-1 e
+    for e in "${entries[@]}"; do
+        if [[ "$e" == *bbrv3* ]]; then
+            target=$idx
+            break
+        fi
+        idx=$((idx + 1))
+    done
+    [ "$target" -lt 0 ] && { warn "grub.cfg 中未找到 BBRv3 菜单项（update-grub 未执行？）"; return 1; }
+
+    if [ "$target" -eq 0 ]; then
+        ok "GRUB 默认引导项已是 BBRv3: ${entries[0]}"
+        return 0
+    fi
+
+    # BBRv3 不在第一个：按 GRUB_DEFAULT 模式处理
+    local gd
+    gd=$(grep -oP '^GRUB_DEFAULT=\K.*' /etc/default/grub 2>/dev/null | head -1 || true)
+    if [ "$gd" = "saved" ]; then
+        if command -v grub-set-default >/dev/null 2>&1; then
+            grub-set-default "$target" 2>/dev/null && ok "GRUB 默认已设为 BBRv3 (index $target)" || warn "grub-set-default 执行失败，请手动检查"
+        else
+            warn "GRUB_DEFAULT=saved 但无 grub-set-default，跳过"
+        fi
+    elif [ -z "$gd" ] || [ "$gd" = "0" ]; then
+        # 默认 0 指向第一个菜单项，而 BBRv3 不在第一位 → 显式指定 index
+        sed -i "s/^GRUB_DEFAULT=.*/GRUB_DEFAULT=$target/" /etc/default/grub 2>/dev/null
+        update-grub >/dev/null 2>&1 || grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1 || true
+        if grep -q "^GRUB_DEFAULT=$target" /etc/default/grub 2>/dev/null; then
+            ok "GRUB_DEFAULT 已设为 $target (BBRv3)"
+        else
+            warn "GRUB_DEFAULT 修改失败，重启可能仍引导旧内核，请手动检查 /etc/default/grub"
+        fi
+    else
+        info "GRUB_DEFAULT=$gd，BBRv3 位于 index $target；若重启未进新内核，手动将 GRUB_DEFAULT 改为 $target"
+    fi
+}
 # ════════════════════════════════════════
 # 主流程
 # ════════════════════════════════════════
@@ -270,26 +458,51 @@ fi
 
 # Step 2: BBRv3
 step "2" "BBRv3 内核安装"
-install_bbrv3 || warn "BBRv3 安装跳过，可手动安装"
+BBR_OK=false
+if install_bbrv3; then
+    BBR_OK=true
+else
+    fail "BBRv3 安装失败（网络优化仍会继续，但不会写成功标记/重启）"
+fi
 
-# Step 3: 网络暴力优化
+# Step 3: 网络暴力优化（无论内核成败都执行，旧内核同样受益）
 step "3" "网络暴力优化"
 apply_sysctl
 boost_limits
+apply_rss
 
-# Step 4: 生成优化标记并准备重启
-touch "$CHECKPOINT"
+# BBRv3 成功才写标记 + 校验引导 + 重启
+if $BBR_OK; then
+    ensure_grub_boot
 
-step "4" "重启生效"
-echo ""
-echo -e "${YELLOW}╔═════════════════════════════════════════════════════╗${N}"
-echo -e "${YELLOW}║  全部优化完成！                                    ║${N}"
-echo -e "${YELLOW}║  服务器将在 10 秒后自动重启                        ║${N}"
-echo -e "${YELLOW}║                                                   ║${N}"
-echo -e "${YELLOW}║  重启后执行:                                       ║${N}"
-echo -e "${YELLOW}║  ${GREEN}curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh | bash${YELLOW}  ║${N}"
-echo -e "${YELLOW}╚═════════════════════════════════════════════════════╝${N}"
-echo ""
-for i in $(seq 10 -1 1); do echo -ne "  即将重启... ${i} 秒 \r"; sleep 1; done
-echo ""
-sync; reboot
+    # Step 4: 生成优化标记并准备重启
+    touch "$CHECKPOINT"
+
+    step "4" "重启生效"
+    echo ""
+    echo -e "${YELLOW}╔═════════════════════════════════════════════════════╗${N}"
+    echo -e "${YELLOW}║  全部优化完成！                                    ║${N}"
+    echo -e "${YELLOW}║  服务器将在 10 秒后自动重启                        ║${N}"
+    echo -e "${YELLOW}║                                                   ║${N}"
+    echo -e "${YELLOW}║  重启后执行:                                       ║${N}"
+    echo -e "${YELLOW}║  ${GREEN}curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh | bash${YELLOW}  ║${N}"
+    echo -e "${YELLOW}╚═════════════════════════════════════════════════════╝${N}"
+    echo ""
+
+    if $NO_REBOOT; then
+        info "已跳过自动重启 (--no-reboot)"
+        info "请稍后手动执行: reboot"
+        info "重启后执行第 2 步: curl -fsSL .../deploy_singbox.sh | bash"
+        exit 0
+    fi
+
+    for i in $(seq 10 -1 1); do echo -ne "  即将重启... ${i} 秒 \r"; sleep 1; done
+    echo ""
+    sync; reboot
+else
+    echo ""
+    warn "BBRv3 内核未安装成功，未写优化标记、未重启"
+    info "网络优化已应用（重启后仍生效，但 BBRv3 需要内核安装成功）"
+    info "修复后重新执行: bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_optimize.sh)"
+    exit 1
+fi

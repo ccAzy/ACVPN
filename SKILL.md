@@ -12,7 +12,7 @@ description: >
 | 文件 | 用途 |
 |------|------|
 | `SKILL.md` | 本文件 — 完整部署指南 |
-| `deploy_optimize.sh` | **第1步** — BBRv3-max + 80+项网络暴力优化 + 自动重启 |
+| `deploy_optimize.sh` | **第1步** — BBRv3-max + 30+项网络暴力优化 + 自动重启 |
 | `deploy_singbox.sh` | **第2步** — sing-box 部署（订阅 + 端口跳跃 + Argo，全自动 heredoc） |
 | `deprecated/deploy_standalone.sh` | 旧版全自动合并脚本（功能已拆分，需 `--force` / `--continue` 才能运行） |
 | `cleanup.sh` | 独立清理脚本，7 步清理 + 4 项自动验证 |
@@ -30,9 +30,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_opti
 自动完成：
 1. 清理旧 sing-box 残留
 2. 安装 BBRv3-max 极致内核（仅 max 版，无 -max 则安装失败退出）
-3. 应用 80+ 项网络暴力优化（TCP/UDP 缓冲区、RSS 多队列、H2/Tuic 专项调优）
+3. 应用 30+ 项网络暴力优化（TCP/UDP 缓冲区、RSS 多队列、H2/Tuic 专项调优）
 4. 提升系统资源限制（nofile/nproc）
-5. 10 秒后自动重启
+5. 校验 GRUB 默认引导新内核（防重启后仍进旧内核）
+6. 10 秒后自动重启（`--no-reboot` 可跳过）
 
 > 幂等安全：已优化过的服务器再次运行会自动检测并跳过，不会重复重启。
 > 如需强制重跑：`rm -f /etc/.ACVPN-optimized && bash <(curl -fsSL .../deploy_optimize.sh)`
