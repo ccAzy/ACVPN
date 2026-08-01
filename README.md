@@ -83,6 +83,14 @@ sb
 
 菜单里可以换端口、换协议、刷新订阅 Token、开关 Argo、更新内核。
 
+一键验证部署：
+
+```bash
+SERVER_IP=你的IP bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/verify.sh)
+```
+
+自动检查进程、端口、Argo 隧道、订阅链接、域名分流是否全部就绪。
+
 彻底卸载：
 
 ```bash
