@@ -17,7 +17,6 @@ description: >
 | `deprecated/deploy_standalone.sh` | 旧版全自动合并脚本（功能已拆分，需 `--force` / `--continue` 才能运行） |
 | `cleanup.sh` | 独立清理脚本，7 步清理 + 4 项自动验证 |
 | `verify.sh` | 部署后验证（进程/端口/Argo/订阅/域名分流） |
-| `config.example.yaml` | 配置模板（IP、域名等可配置项） |
 
 ## 部署流程（三步）
 
