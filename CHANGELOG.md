@@ -1,11 +1,9 @@
 # Changelog
 
-## v2.4.1 (2026-08-01)
+## 2026-08-01
 
 ### 🗑️ 移除
 - **删除 `deprecated/deploy_standalone.sh`** — 旧版单脚本跨重启续跑（`--continue`）场景已被拆分后的两阶段流程取代（优化脚本在最后自动重启，重启后部署脚本从头跑，无需断点续跑）；仓库瘦身 1204 行，同步移除 SKILL.md 文件表格引用
-
-## v2.4.0 (2026-08-01)
 
 ### 🚀 功能
 - **BBRv3 下载可靠性** — GitHub API 统一加 `User-Agent` 头防 403 限流 + 自动重试；下载加 `--retry-connrefused`/`--max-time 120`；新增 **SHA256SUMS 完整性校验**（不匹配即中止安装，校验文件缺失时降级警告）
@@ -26,7 +24,7 @@
 - **README/SKILL 数字对齐** — "80+ 项"更正为"30+ 项"，步骤列表补 RSS、GRUB 校验、`--no-reboot`
 - **删除 `config.example.yaml`** — 端口/域名/TG 配置均为脚本 heredoc 硬编码，shell 流程不读取该文件，同步移除 SKILL.md 文件表格引用
 
-## v2.3.0 (2026-07-29)
+## 2026-07-29
 
 ### 🔧 改进
 - **环境预检** — `deploy_optimize.sh` 和 `deploy_singbox.sh` 增加前置检查（发行版/架构/内存/磁盘）

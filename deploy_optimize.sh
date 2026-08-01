@@ -22,7 +22,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 # GitHub API 要求 User-Agent，否则限流（403），国内 VPS 更易触发
-UA="User-Agent: ACVPN-deploy/2.4.0"
+UA="User-Agent: ACVPN-deploy"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; WHITE='\033[1;37m'; N='\033[0m'
