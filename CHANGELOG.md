@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.4.0 (2026-08-01)
+
+### 🚀 功能
+- **BBRv3 下载可靠性** — GitHub API 统一加 `User-Agent` 头防 403 限流 + 自动重试；下载加 `--retry-connrefused`/`--max-time 120`；新增 **SHA256SUMS 完整性校验**（不匹配即中止安装，校验文件缺失时降级警告）
+- **BBRv3 失败语义修正** — 安装失败不再写成功标记、不自动重启，网络优化照常应用后提示修复重跑（`deploy_optimize.sh`）
+- **H2/Tuic/UDP 专项 sysctl** — 新增 `udp_rmem_min`/`busy_read`/`busy_poll`、keepalive 三件套、`ip_local_port_range=1024 65535`、swap 优化，共 29 项
+- **RSS 多队列** — 默认网卡 RPS/RFS 全核负载均衡 + ethtool 尽力扩队列；**持久化**至 `acvpn-rss.service` 开机自启，重启不丢（驱动/虚拟化不支持自动跳过）
+- **GRUB 默认内核校验** — 重启前解析 `grub.cfg` 确认默认引导项为 BBRv3，否则按 `GRUB_DEFAULT` 模式自动修正（saved→`grub-set-default`，空/0→sed+update-grub）
+- **`--no-reboot` 参数** — 预检场景跳过自动重启，稍后手动 `reboot` 生效
+- **日志落盘** — 全程 `tee` 记录至 `/var/log/acvpn-optimize.log`；INT/TERM trap 正确退出并清理临时文件
+- **订阅端口多源探测** — `deploy_singbox.sh` 优先读 `/etc/s-box/subport.log`，回退 `ss -tlnp` 匹配 busybox/httpd/lighttpd/nginx，并用 HTTP 验证订阅可用
+- **Tuic 端口跳跃** — 配置范围扩至 43000-45000
+
+### 🐛 修复
+- **订阅端口误判** — 原单一 `ss` 匹配易受其他 HTTP 服务干扰，现多源探测 + HTTP 验证
+- **`deploy_standalone.sh` 误用风险** — 加废弃保护，无 `--force`/`--continue` 直接拒绝执行（置于任何系统操作之前）
+- **脚本 UTF-8 BOM** — 移除 5 个 shell 脚本 BOM，修复 `./script.sh` 直接执行报 `line 1: #!/bin/bash` 错误
+
+### 📄 文档
+- **README/SKILL 数字对齐** — "80+ 项"更正为"30+ 项"，步骤列表补 RSS、GRUB 校验、`--no-reboot`
+- **删除 `config.example.yaml`** — 端口/域名/TG 配置均为脚本 heredoc 硬编码，shell 流程不读取该文件，同步移除 SKILL.md 文件表格引用
+
 ## v2.3.0 (2026-07-29)
 
 ### 🔧 改进
