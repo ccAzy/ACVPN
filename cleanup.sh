@@ -31,7 +31,7 @@ fi
 # ————————————————————————————————————————————————————————————————
 echo "--- 停止服务 ---"
 
-for svc in sing-box cloudflared cloudflared-update; do
+for svc in sing-box cloudflared cloudflared-update acvpn-rss; do
     if systemctl is-active "$svc" &>/dev/null; then
         systemctl stop "$svc" 2>/dev/null || true
         ok "已停止服务: $svc"
