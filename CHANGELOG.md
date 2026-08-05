@@ -3,6 +3,7 @@
 ## 2026-08-05
 
 ### 🐛 修复
+- **BBRv3 下载可能拿到 linux-headers 包** — release assets 顺序里 `linux-headers` 排在 `linux-image` 前，原 `grep bbrv3-max + deb + head -1` 会命中 headers（无 vmlinuz，装完 /boot 检查必然失败、BBRv3 静默装不上）；下载逻辑加 `linux-image-` 过滤锁定内核镜像包（主路径 + kernel.org 回退两处）
 - **arm64 VPS 取不到 BBRv3-max** — Releases API `per_page=2` 在 x86_64 更新后最近 2 个 release 可能同架构，arm64 会误走 kernel.org 回退；改为 `per_page=10` 覆盖双架构 × max/标准 × 多版本
 - **14 处 raw 链接 404** — README/SKILL/脚本注释中的 `raw.githubusercontent.com/ccAzy/ACVPN/main/` 全部失效（默认分支为 master），改为将默认分支重命名为 main，链接零改动自然生效
 - **cleanup 漏清 acvpn-rss.service** — 优化脚本注册的 RSS 多队列开机自启服务卸载后残留，补入 systemd unit 清理清单

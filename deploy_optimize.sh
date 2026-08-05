@@ -160,7 +160,9 @@ install_bbrv3() {
     # 获取最近 2 个 release，优先找 -max 极致版
     local JSON_DATA=$(curl -fsL -H "$UA" --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 20 "$RELEASES_API" 2>/dev/null || echo "")
     if [ -n "$JSON_DATA" ]; then
-        DOWNLOAD_URL=$(echo "$JSON_DATA" | jq -r '.[].assets[]?.browser_download_url // empty' | grep -F "joeyblog-bbrv3-max" | grep -F "$DEB_ARCH.deb" | head -1)
+        # 必须锁定 linux-image 包：assets 顺序里 linux-headers 排在 image 前，
+        # 不加过滤会下载到 headers（无 vmlinuz，装完 /boot 检查必然失败）
+        DOWNLOAD_URL=$(echo "$JSON_DATA" | jq -r '.[].assets[]?.browser_download_url // empty' | grep -F "linux-image-" | grep -F "joeyblog-bbrv3-max" | grep -F "$DEB_ARCH.deb" | head -1)
     fi
 
     # 备用：如果 API 无结果，从 kernel.org 获取最新版本动态拼接
@@ -176,7 +178,7 @@ install_bbrv3() {
             local ASSET_JSON
             ASSET_JSON=$(curl -fsL -H "$UA" --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 30 "https://api.github.com/repos/ccAzy/Actions-bbr-v3/releases/tags/${TAG}-max" 2>/dev/null || echo "")
             if [ -n "$ASSET_JSON" ]; then
-                DOWNLOAD_URL=$(echo "$ASSET_JSON" | jq -r '.assets[]?.browser_download_url // empty' | grep -F "joeyblog-bbrv3-max" | grep -F "$DEB_ARCH.deb" | head -1)
+                DOWNLOAD_URL=$(echo "$ASSET_JSON" | jq -r '.assets[]?.browser_download_url // empty' | grep -F "linux-image-" | grep -F "joeyblog-bbrv3-max" | grep -F "$DEB_ARCH.deb" | head -1)
             fi
         fi
     fi
