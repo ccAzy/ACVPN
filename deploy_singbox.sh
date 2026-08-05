@@ -499,13 +499,14 @@ apply_antiprobe() {
     done < <(jq -r '.inbounds[] | "\(.listen_port)|\(.type)|\(.tls.enabled // "false")"' /etc/s-box/sb.json 2>/dev/null)
 
     # 清理旧规则（幂等：重复部署/重跑不叠加）
-    # a) hashlimit 限速规则（按名字段行号删除，v4+v6）
-    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg' | \
+    # 注意：iptables -L 可读输出是 "limit: above 50/sec"（不是 avg）、connlimit 是 "#conn src/32"（斜杠在数字后）
+    # a) hashlimit 限速规则（按行号删除，v4+v6）
+    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: above' | \
       awk '{print $1}' | sort -rn | while read -r num; do
         iptables -D INPUT "$num" 2>/dev/null || true
     done || true
-    # b) connlimit 连接数上限规则（iptables -L 输出特征为 #conn/）
-    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E '#conn/' | \
+    # b) connlimit 连接数上限规则
+    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E '#conn' | \
       awk '{print $1}' | sort -rn | while read -r num; do
         iptables -D INPUT "$num" 2>/dev/null || true
     done || true
@@ -515,7 +516,7 @@ apply_antiprobe() {
         command -v ip6tables >/dev/null 2>&1 && ip6tables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
     fi
     if command -v ip6tables >/dev/null 2>&1; then
-        ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg|#conn/' | \
+        ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: above|#conn' | \
           awk '{print $1}' | sort -rn | while read -r num; do
             ip6tables -D INPUT "$num" 2>/dev/null || true
         done || true
