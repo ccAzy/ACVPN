@@ -105,7 +105,7 @@ install_singbox_yg() {
 
     if ! command -v sb &>/dev/null; then
         info "安装 sing-box-yg 管理脚本..."
-        curl -fsSL --connect-timeout 15 --max-time 60 -o /usr/bin/sb https://raw.githubusercontent.com/ccAzy/sing-box-yg/main/sb.sh 2>/dev/null || {
+        curl -fsSL --connect-timeout 15 --max-time 60 -o /usr/bin/sb https://raw.githubusercontent.com/ccAzy/sing-box-yg/acvpn/sb.sh 2>/dev/null || {
             fail "sing-box-yg 下载失败"
             return 1
         }

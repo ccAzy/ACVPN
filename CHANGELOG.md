@@ -23,7 +23,7 @@
 
 ### 🚀 Argo 稳定性（第三轮）
 - **Argo 临时隧道保活 watchdog** — 临时隧道是 nohup 裸进程，掉线后无人拉起（表现为"网速突然没了"）；现由 cron 每 3 分钟自检，进程挂掉自动拉起并刷新订阅（临时隧道域名每次重启都变），部署时无论 Argo 是否启动成功都会安装（失败则自动补起）
-- **sing-box-yg 切换到自维护 fork** — 安装源由上游 `yonggekkk/sing-box-yg` 改为 `ccAzy/sing-box-yg`，fork 新增 Argo 附加参数文件 `/etc/s-box/argo-extra.conf`（可选，如 `--protocol quic --edge-ip-version 4`，不存在时行为与上游完全一致），可按 VPS 网络环境调优
+- **sing-box-yg 切换到自维护 fork** — 安装源由上游 `yonggekkk/sing-box-yg` 改为 `ccAzy/sing-box-yg` 的 `acvpn` 分支（fork 的 main 与上游保持同步、零冲突，增强全部隔离在 acvpn 分支），fork 新增 Argo 附加参数文件 `/etc/s-box/argo-extra.conf`（可选，如 `--protocol quic --edge-ip-version 4`，不存在时行为与上游完全一致），临时隧道默认协议 `auto`（QUIC 优先自动回退），可按 VPS 网络环境调优
 - **保活脚本与协议补丁对齐** — 拉起命令统一 `--protocol auto`（QUIC 优先、自动回退 HTTP2），与 apply_argo_patch 目标一致
 - **cleanup 同步清理** — 卸载时删除 Argo 保活脚本与 cron 条目
 

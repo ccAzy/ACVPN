@@ -19,7 +19,7 @@ ACVPN 把**内核优化 + sing-box 部署 + 订阅生成**打包成两条命令�
 
 不需要懂 Linux，不需要看 sing-box 文档，不需要写一行 JSON。
 
-> 基于 [甬哥 sing-box-yg](https://github.com/yonggekkk/sing-box-yg) 二次开发（使用自维护 fork [ccAzy/sing-box-yg](https://github.com/ccAzy/sing-box-yg)，含 Argo 调优增强）。要求 Debian 11+ / Ubuntu 22.04+，公网 IPv4，≥ 512MB 内存。
+> 基于 [甬哥 sing-box-yg](https://github.com/yonggekkk/sing-box-yg) 二次开发（使用自维护 fork [ccAzy/sing-box-yg](https://github.com/ccAzy/sing-box-yg) 的 `acvpn` 分支，含 Argo 调优增强）。要求 Debian 11+ / Ubuntu 22.04+，公网 IPv4，≥ 512MB 内存。
 
 ---
 
