@@ -403,6 +403,30 @@ LIMIT
     fi
 }
 
+# ── Argo 传输协议优化补丁 ──
+# sb.sh 上游把 cloudflared 写死为 --protocol http2(TCP)：高丢包/长距离链路上
+# TCP 队头阻塞是 Argo 速度抖动的主要来源。改为 auto 后 cloudflared 自动选择
+# QUIC(UDP，多路复用无队头阻塞、抗丢包)，QUIC 握手失败时自动回退 http2，零风险。
+# 补丁在 Argo 首次配置前执行 → 部署时天然生效，无 URL 漂移问题。
+apply_argo_patch() {
+    [ -f /usr/bin/sb ] || { warn "sb.sh 不存在，跳过 Argo 协议补丁"; return 1; }
+    if grep -q -- '--protocol http2' /usr/bin/sb; then
+        sed -i 's/--protocol http2/--protocol auto/g' /usr/bin/sb
+        if grep -q -- '--protocol auto' /usr/bin/sb && ! grep -q -- '--protocol http2' /usr/bin/sb; then
+            ok "Argo 传输协议已优化: http2 → auto (QUIC 优先，自动回退)"
+        else
+            warn "Argo 协议补丁未完全生效，请检查 /usr/bin/sb"
+        fi
+    else
+        info "Argo 已是 auto 协议，跳过补丁"
+    fi
+    # 旧服务器上已运行的 http2 Argo：重启才生效（URL 会变，仅提示不自动重启）
+    if pgrep -f 'cloudflared.*--protocol http2' >/dev/null 2>&1; then
+        warn "检测到旧 http2 Argo 进程，下次重启 Argo 时生效 (sb → 3 → 3 → 1 → 1)"
+    fi
+    return 0
+}
+
 # ════════════════════════════════════════
 # 主流程
 # ════════════════════════════════════════
@@ -418,6 +442,7 @@ DEPLOY_OK=true
 
 step "1" "安装 sing-box"
 install_singbox_yg || DEPLOY_OK=false
+apply_argo_patch
 
 step "2" "配置订阅链接"
 setup_subscription || DEPLOY_OK=false

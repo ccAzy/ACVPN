@@ -14,6 +14,7 @@
 - **安全加固持久化** — rp_filter/syncookies/accept_* 由运行时 `sysctl -w`（重启即失效）改为写入 `/etc/sysctl.d/99-ACVPN-security.conf`（`deploy_singbox.sh`）
 - **清理补 nftables 持久化** — `nft delete` 后同步重写 /etc/nftables.conf，防 sing-box 表重启复活；清理同时删除 `/etc/.ACVPN-singbox` 部署标记（`cleanup.sh`）
 - **verify.sh 增强** — 新增 BBRv3 检测（`modinfo tcp_bbr` 模块描述为准）、端口跳跃规则验证；argo.log 提取加 `-a` 防二进制误判；`which` 改 `command -v`
+- **Argo 传输协议优化** — sb.sh 上游把 cloudflared 写死为 `--protocol http2`（TCP），高丢包/长距离链路队头阻塞是 Argo 速度抖动主因；部署时对 /usr/bin/sb 打幂等补丁改为 `--protocol auto`（QUIC 优先抗丢包、握手失败自动回退 http2），补丁在 Argo 首次配置前执行，部署即生效、无 URL 漂移（`deploy_singbox.sh`）
 
 ### ✏️ 清理
 - **移除 tcp_notsent_lowat=4294967295** — 等于内核默认 UINT_MAX，无优化意义且误导；真正的低延迟应在 sing-box 侧设置 TCP_NOTSENT_LOWAT socket 选项
