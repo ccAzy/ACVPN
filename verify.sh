@@ -115,14 +115,15 @@ else
 fi
 
 # 防主动探测规则（动态端口限速 + SSH + 连接数上限 + IPv6 对称）
-if iptables -L INPUT -n 2>/dev/null | grep -qE 'limit: avg|#conn/'; then
+if iptables -L INPUT -n 2>/dev/null | grep -qE 'limit: above|#conn'; then
     ok "防主动探测规则存在 (动态端口限速 + SSH + 连接数上限)"
     PASS=$((PASS + 1))
 else
     warn "未检测到防主动探测规则"
 fi
 # VMess 明文端口公网封锁（仅 lo 可达，防明文 HTTP 特征暴露）
-VMWS_LOCKED=$(iptables -L INPUT -n 2>/dev/null | grep -c 'DROP.*lo')
+# 注意：nf_tables 后端 iptables -L 不显示 !lo，用 iptables-save 原文匹配
+VMWS_LOCKED=$(iptables-save 2>/dev/null | grep -c '! -i lo')
 if [ "$VMWS_LOCKED" -gt 0 ]; then
     ok "VMess 明文端口公网封锁中 (仅 Argo 本地回环可达)"
     PASS=$((PASS + 1))
