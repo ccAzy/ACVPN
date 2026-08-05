@@ -105,7 +105,7 @@ install_singbox_yg() {
 
     if ! command -v sb &>/dev/null; then
         info "安装 sing-box-yg 管理脚本..."
-        curl -fsSL --connect-timeout 15 --max-time 60 -o /usr/bin/sb https://raw.githubusercontent.com/yonggekkk/sing-box-yg/main/sb.sh 2>/dev/null || {
+        curl -fsSL --connect-timeout 15 --max-time 60 -o /usr/bin/sb https://raw.githubusercontent.com/ccAzy/sing-box-yg/main/sb.sh 2>/dev/null || {
             fail "sing-box-yg 下载失败"
             return 1
         }
@@ -427,6 +427,43 @@ apply_argo_patch() {
     return 0
 }
 
+# ── Argo 临时隧道保活（掉线自动拉起 + 刷新订阅） ──
+# 临时隧道是 nohup 裸进程，无 systemd 自愈，进程挂了没人管（表现为"网速突然没了"）
+install_argo_keepalive() {
+    cat > /usr/local/sbin/acvpn-argo-keepalive.sh << 'KEEP'
+#!/bin/bash
+# ACVPN Argo 临时隧道保活（由 cron 每 3 分钟调用）
+# 检测临时隧道进程，挂掉自动拉起；临时隧道域名每次重启都会变，需刷新订阅
+LOG=/etc/s-box/argo.log
+
+pgrep -f 'cloudflared.*tunnel.*localhost' >/dev/null 2>&1 && exit 0
+
+# 解析 sing-box WS 监听端口（与 sb.sh 同源：inbounds[1].listen_port）
+WS_PORT=$(sed 's://.*::g' /etc/s-box/sb.json 2>/dev/null | jq -r '.inbounds[1].listen_port' 2>/dev/null)
+[ -n "$WS_PORT" ] && [ "$WS_PORT" != "null" ] || exit 0
+
+pkill -9 -f 'cloudflared.*tunnel.*localhost' 2>/dev/null || true
+sleep 1
+
+# 启动新隧道（argo-extra.conf 为 fork 增强的可选附加参数，如 --protocol quic）
+nohup /etc/s-box/cloudflared tunnel --url "http://localhost:$WS_PORT" \
+  --edge-ip-version auto --no-autoupdate --protocol auto \
+  $(cat /etc/s-box/argo-extra.conf 2>/dev/null) > "$LOG" 2>&1 &
+
+sleep 15
+if pgrep -f 'cloudflared.*tunnel.*localhost' >/dev/null 2>&1; then
+    # 域名已变，刷新订阅让客户端拿到新地址
+    printf "9\n1\n" | bash /usr/bin/sb > /dev/null 2>&1 || true
+    logger -t acvpn-argo "临时隧道掉线后已自动重启并刷新订阅"
+fi
+exit 0
+KEEP
+    chmod +x /usr/local/sbin/acvpn-argo-keepalive.sh
+    # 安装 cron（每 3 分钟自检；幂等，重复执行不叠加）
+    ( crontab -l 2>/dev/null | grep -v 'acvpn-argo-keepalive'; echo '*/3 * * * * /usr/local/sbin/acvpn-argo-keepalive.sh > /dev/null 2>&1' ) | crontab - 2>/dev/null
+    ok "Argo 保活已安装（每 3 分钟自检，掉线自动拉起并刷新订阅）"
+}
+
 # ════════════════════════════════════════
 # 主流程
 # ════════════════════════════════════════
@@ -453,6 +490,8 @@ config_port_hopping || true
 
 step "4" "Argo 临时隧道"
 start_argo || DEPLOY_OK=false
+# 无论 Argo 是否启动成功都装保活：成功则维持，失败则 3 分钟内自动补起
+install_argo_keepalive
 
 step "5" "安全加固"
 apply_hardening

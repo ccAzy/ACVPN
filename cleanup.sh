@@ -129,6 +129,14 @@ else
     info "无部署标记"
 fi
 
+# 删除 Argo 保活脚本（对应 cron 条目已被上面 crontab 清理逻辑按 'argo' 匹配移除）
+if [ -f /usr/local/sbin/acvpn-argo-keepalive.sh ]; then
+    rm -f /usr/local/sbin/acvpn-argo-keepalive.sh
+    ok "已删除 Argo 保活脚本"
+else
+    info "无 Argo 保活脚本"
+fi
+
 # ————————————————————————————————————————————————————————————————
 # 6. 清理 iptables 规则
 # ————————————————————————————————————————————————————————————————

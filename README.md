@@ -19,7 +19,7 @@ ACVPN 把**内核优化 + sing-box 部署 + 订阅生成**打包成两条命令�
 
 不需要懂 Linux，不需要看 sing-box 文档，不需要写一行 JSON。
 
-> 基于 [甬哥 sing-box-yg](https://github.com/yonggekkk/sing-box-yg) 二次开发。要求 Debian 11+ / Ubuntu 22.04+，公网 IPv4，≥ 512MB 内存。
+> 基于 [甬哥 sing-box-yg](https://github.com/yonggekkk/sing-box-yg) 二次开发（使用自维护 fork [ccAzy/sing-box-yg](https://github.com/ccAzy/sing-box-yg)，含 Argo 调优增强）。要求 Debian 11+ / Ubuntu 22.04+，公网 IPv4，≥ 512MB 内存。
 
 ---
 
@@ -67,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh 
 | BBRv3-max 内核 + 35 项参数调优 | 延迟更低、吞吐更大；缓冲区按内存自动分级（小内存防 OOM） |
 | VLESS / VMess / Hysteria2 / Tuic5 / AnyTLS | 五个协议同时在线，客户端任选 |
 | Hysteria2 端口跳跃（40000-42000）<br>Tuic5 端口跳跃（43000-45000） | ISP 限制 UDP 端口时更难封锁 |
-| Argo 临时隧道 | Cloudflare CDN 转发，隐藏 VPS 真实 IP；QUIC 传输优先（抗丢包），握手失败自动回退 |
+| Argo 临时隧道 | Cloudflare CDN 转发，隐藏 VPS 真实 IP；QUIC 传输优先（抗丢包）自动回退；保活 watchdog 掉线自动拉起 |
 | WARP 域名分流 | ChatGPT / Netflix / Google 等走 WARP 出口，解锁流媒体 |
 | 订阅链接 | Clash YAML + Sing-box JSON + 通用聚合，不用手写配置 |
 | systemd 资源限制 + 安全加固 | sing-box 服务 LimitNOFILE 提升；rp_filter/syncookies 等安全参数持久化，重启不丢 |
