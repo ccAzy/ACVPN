@@ -6,7 +6,6 @@
 
 <h1 align="center">ACVPN</h1>
 <p align="center"><strong>有了 VPS 还想一键部署翻墙节点？两条命令搞定。</strong></p>
-<p align="center"><strong>已整合原 YGVPN 项目(仓库已移除,功能全部并入),本项目为唯一主仓库,后续在此持续维护。</strong></p>
 
 ---
 
@@ -14,7 +13,7 @@
 
 ACVPN 把**内核优化 + sing-box 部署 + 订阅生成**打包成两条命令。你负责买 VPS、粘贴命令、导入订阅；脚本负责剩下的一切。
 
-- 内核自动装上 BBRv3-max + 30+ 项网络参数极限调优
+- 内核自动装上 BBRv3-max + 35 项网络/安全参数极限调优
 - sing-box 自动配好五协议 + 端口跳跃 + Argo 隧道 + WARP 域名分流
 - 订阅链接直接打印在终端，复制到客户端就能用
 
@@ -38,6 +37,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_opti
 
 > 2-5 分钟。SSH 断开是正常的，等 30 秒重新连。
 > 预检场景可用 `--no-reboot` 跳过自动重启，稍后手动 `reboot`。
+> 已优化过的服务器重复执行会自动跳过，不会重复重启。
 
 ### 第 2 步：部署 sing-box（重启后）
 
@@ -48,6 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh 
 安装 sing-box → 生成订阅 → 配端口跳跃 → 开 Argo 隧道 → 装 WARP 分流。
 
 > 3-8 分钟。跑完后终端直接打印订阅链接。
+> 重复执行**不会覆盖**现有配置（幂等设计，检测到已部署自动跳过）。
 
 ### 第 3 步：导入客户端
 
@@ -63,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh 
 
 | 做好的事情 | 你得到什么 |
 |---|---|
-| BBRv3-max 内核 + 网络优化 | 延迟更低、吞吐更大，重启后自动生效；缓冲区按内存自动分级（小内存防 OOM） |
+| BBRv3-max 内核 + 35 项参数调优 | 延迟更低、吞吐更大；缓冲区按内存自动分级（小内存防 OOM） |
 | VLESS / VMess / Hysteria2 / Tuic5 / AnyTLS | 五个协议同时在线，客户端任选 |
 | Hysteria2 端口跳跃（40000-42000）<br>Tuic5 端口跳跃（43000-45000） | ISP 限制 UDP 端口时更难封锁 |
 | Argo 临时隧道 | Cloudflare CDN 转发，隐藏 VPS 真实 IP |
@@ -71,7 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh 
 | 订阅链接 | Clash YAML + Sing-box JSON + 通用聚合，不用手写配置 |
 | systemd 资源限制 + 安全加固 | sing-box 服务 LimitNOFILE 提升；rp_filter/syncookies 等安全参数持久化，重启不丢 |
 
-重复执行**不会覆盖**现有配置，也**不会重复重启**。
+> 全部参数持久化（`/etc/sysctl.d/`、systemd drop-in），重启不丢，不需要二次配置。
 
 ---
 
@@ -91,13 +92,15 @@ sb
 SERVER_IP=你的IP bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/verify.sh)
 ```
 
-自动检查进程、端口、Argo 隧道、订阅链接、域名分流是否全部就绪。
+自动检查 BBRv3 内核、进程、端口、端口跳跃规则、Argo 隧道、订阅链接、域名分流是否全部就绪，通过/失败一目了然。
 
 彻底卸载：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/cleanup.sh)
 ```
+
+清除 sing-box / Argo / 端口跳跃规则 / 订阅服务 / 部署标记，iptables 与 nftables 规则同步重新持久化，重启后无残留复活。
 
 ---
 
