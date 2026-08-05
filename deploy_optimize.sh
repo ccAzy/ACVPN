@@ -258,6 +258,16 @@ apply_sysctl() {
         RMEM_MAX=16777216     # <2GB: 16MB（512MB 小内存 VPS 不再有 OOM 风险）
     fi
 
+    # conntrack 表容量按内存分级：表满会丢弃新连接 → 客户端反复重连 → 连接风暴特征（易被判代理）
+    local CT_MAX
+    if [ "$mem_mb" -ge 8192 ]; then
+        CT_MAX=1048576        # ≥8GB: 100万条（约 350MB）
+    elif [ "$mem_mb" -ge 2048 ]; then
+        CT_MAX=524288         # 2-8GB: 50万条（约 180MB）
+    else
+        CT_MAX=131072         # <2GB: 13万条（约 46MB，512MB 小内存 VPS 友好）
+    fi
+
     cat > /etc/sysctl.d/99-ACVPN-brutal.conf << SYSCTL
 # ACVPN 暴力网络优化
 # ── TCP 传输 ──
@@ -298,9 +308,20 @@ net.ipv4.tcp_congestion_control = bbr
 # ── 内存压力（512MB 小内存 VPS 友好） ──
 vm.swappiness = 10
 vm.vfs_cache_pressure = 50
+# ── conntrack（代理高连接数友好；表满丢新连接 → 重连风暴特征，易被判代理） ──
+net.netfilter.nf_conntrack_max = ${CT_MAX}
+net.netfilter.nf_conntrack_tcp_timeout_established = 1200
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
+net.netfilter.nf_conntrack_udp_timeout = 30
+net.netfilter.nf_conntrack_udp_timeout_stream = 120
 SYSCTL
 
     sysctl --system >/dev/null 2>&1 || warn "sysctl 应用部分失败，请手动检查 /etc/sysctl.d/"
+    # 哈希桶容量是内核模块参数（非 sysctl），运行时同步调整；否则 max 增大后桶仍为默认值，冲突链变长
+    if [ -w /sys/module/nf_conntrack/parameters/hashsize ]; then
+        echo $((CT_MAX / 4)) > /sys/module/nf_conntrack/parameters/hashsize 2>/dev/null && \
+            ok "conntrack 哈希桶已同步 (${CT_MAX} 条 → $((CT_MAX / 4)) 桶)"
+    fi
     ok "网络参数已应用 (持久化至 /etc/sysctl.d/99-ACVPN-brutal.conf，缓冲区按内存 ${mem_mb}MB 分级)"
 }
 

@@ -64,13 +64,14 @@ curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh 
 
 | 做好的事情 | 你得到什么 |
 |---|---|
-| BBRv3-max 内核 + 35 项参数调优 | 延迟更低、吞吐更大；缓冲区按内存自动分级（小内存防 OOM） |
+| BBRv3-max 内核 + 40 项参数调优 | 延迟更低、吞吐更大；缓冲区/连接跟踪表按内存自动分级（小内存防 OOM） |
 | VLESS / VMess / Hysteria2 / Tuic5 / AnyTLS | 五个协议同时在线，客户端任选 |
 | Hysteria2 端口跳跃（40000-42000）<br>Tuic5 端口跳跃（43000-45000） | ISP 限制 UDP 端口时更难封锁 |
 | Argo 临时隧道 | Cloudflare CDN 转发，隐藏 VPS 真实 IP；QUIC 传输优先（抗丢包）自动回退；保活 watchdog 掉线自动拉起 |
 | WARP 域名分流 | ChatGPT / Netflix / Google 等走 WARP 出口，解锁流媒体 |
 | 订阅链接 | Clash YAML + Sing-box JSON + 通用聚合，不用手写配置 |
 | systemd 资源限制 + 安全加固 | sing-box 服务 LimitNOFILE 提升；rp_filter/syncookies 等安全参数持久化，重启不丢 |
+| 防主动探测（降低 IP 被封风险） | 443 SYN / UDP 跳跃段 / SSH 按来源 IP 限速 + 单 IP 连接数上限（hashlimit/connlimit，DROP 不暴露端口）；conntrack 表容量按内存分级，防表满丢连接引发重连风暴 |
 
 > 全部参数持久化（`/etc/sysctl.d/`、systemd drop-in），重启不丢，不需要二次配置。
 

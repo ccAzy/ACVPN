@@ -2,6 +2,12 @@
 
 ## 2026-08-05
 
+### 🛡️ 防封（新增）
+- **防主动探测规则（apply_antiprobe）** — GFW active probing 会批量 TLS 探测、扫描 UDP 跳跃段、爆破 SSH；现按来源 IP 限速：443 SYN 50/s、UDP 跳跃段 200/s、SSH 3/min（hashlimit），单来源 IP 到 443 连接数上限 200（connlimit），全部 DROP 不暴露端口有服务，与端口跳跃同三层持久化
+- **conntrack 调优** — 连接跟踪表容量按内存分级（≥8GB 100万 / 2-8GB 50万 / <2GB 13万条），超时缩短（established 1200s / time_wait 30s / udp 30s）；表满会丢新连接 → 客户端反复重连 → 连接风暴特征（易被判代理），哈希桶容量运行时同步（模块参数非 sysctl）
+- **verify.sh 新增防探测规则检查** — 部署自检包含 443/SSH 限速规则存在性
+- **cleanup.sh 同步清理防探测规则** — 卸载时删除 hashlimit/connlimit 规则并重新持久化
+
 ### 🐛 修复
 - **BBRv3 下载可能拿到 linux-headers 包** — release assets 顺序里 `linux-headers` 排在 `linux-image` 前，原 `grep bbrv3-max + deb + head -1` 会命中 headers（无 vmlinuz，装完 /boot 检查必然失败、BBRv3 静默装不上）；下载逻辑加 `linux-image-` 过滤锁定内核镜像包（主路径 + kernel.org 回退两处）
 - **arm64 VPS 取不到 BBRv3-max** — Releases API `per_page=2` 在 x86_64 更新后最近 2 个 release 可能同架构，arm64 会误走 kernel.org 回退；改为 `per_page=10` 覆盖双架构 × max/标准 × 多版本

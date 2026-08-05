@@ -464,6 +464,55 @@ KEEP
     ok "Argo 保活已安装（每 3 分钟自检，掉线自动拉起并刷新订阅）"
 }
 
+# ── 防主动探测/端口扫描（降低 IP 被封风险） ──
+# GFW active probing 会批量 TLS 探测、扫描 UDP 跳跃段、爆破 SSH；
+# 按来源 IP 限速：正常代理客户端远低于阈值，不影响使用。
+# 用 DROP 而非 REJECT —— 对探测者不暴露"端口有服务"。
+apply_antiprobe() {
+    # 清理旧规则（幂等：重复部署/重跑不叠加）
+    iptables -D INPUT -p tcp --dport 443 -m state --state NEW -m connlimit --connlimit-above 200 -j DROP 2>/dev/null || true
+    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'probe443|probeudp|probeudp2|probe22' | \
+      awk '{print $1}' | sort -rn | while read -r num; do
+        iptables -D INPUT "$num" 2>/dev/null || true
+    done || true
+
+    # 1) 443 端口 SYN 限速：防批量 TLS 主动探测（burst 100 容忍多设备/多应用并发建连）
+    iptables -A INPUT -p tcp --dport 443 -m state --state NEW -m hashlimit \
+      --hashlimit-above 50/sec --hashlimit-burst 100 --hashlimit-mode srcip \
+      --hashlimit-name probe443 -j DROP 2>/dev/null || warn "443 SYN 限速规则添加失败（hashlimit 模块可能缺失）"
+
+    # 2) UDP 跳跃段限速：防端口段扫描（hy2/tuic 为长连接，不会高频新建流）
+    iptables -A INPUT -p udp --dport 40000:42000 -m hashlimit \
+      --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
+      --hashlimit-name probeudp -j DROP 2>/dev/null || true
+    iptables -A INPUT -p udp --dport 43000:45000 -m hashlimit \
+      --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
+      --hashlimit-name probeudp2 -j DROP 2>/dev/null || true
+
+    # 3) SSH 爆破防御（轻量 fail2ban：正常登录远低于 3/min，暴力破解立即触发丢包）
+    iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m hashlimit \
+      --hashlimit-above 3/min --hashlimit-burst 5 --hashlimit-mode srcip \
+      --hashlimit-name probe22 -j DROP 2>/dev/null || true
+
+    # 4) 单来源 IP 到 443 的连接数上限：防连接数特征与 CC（家庭 NAT 200 连接足够）
+    iptables -A INPUT -p tcp --dport 443 -m state --state NEW -m connlimit --connlimit-above 200 -j DROP 2>/dev/null || true
+
+    # 持久化（与端口跳跃同三层兜底）
+    if netfilter-persistent save 2>/dev/null; then
+        ok "防探测规则已持久化 (netfilter-persistent)"
+    elif service iptables save 2>/dev/null; then
+        ok "防探测规则已持久化 (iptables service)"
+    elif command -v iptables-save >/dev/null 2>&1; then
+        mkdir -p /etc/iptables 2>/dev/null
+        iptables-save > /etc/iptables/rules.v4 2>/dev/null
+        ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+        ok "防探测规则已持久化 (iptables-save)"
+    else
+        warn "无法持久化防探测规则，重启后需重新执行 deploy_singbox.sh"
+    fi
+    ok "防主动探测已启用: 443 SYN/UDP跳跃段/SSH 限速 + 单IP连接数上限"
+}
+
 # ════════════════════════════════════════
 # 主流程
 # ════════════════════════════════════════
@@ -495,6 +544,7 @@ install_argo_keepalive
 
 step "5" "安全加固"
 apply_hardening
+apply_antiprobe
 
 # ── WARP + 域名分流 ──
 setup_warp
