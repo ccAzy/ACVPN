@@ -242,17 +242,31 @@ install_bbrv3() {
 apply_sysctl() {
     info "应用网络暴力优化..."
 
-    cat > /etc/sysctl.d/99-ACVPN-brutal.conf << 'SYSCTL'
+    # 按内存分级的缓冲区上限：大内存吃满带宽，小内存防 OOM
+    local mem_kb=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+    local mem_mb=$((mem_kb / 1024))
+    local RMEM_MAX
+    if [ "$mem_mb" -ge 8192 ]; then
+        RMEM_MAX=134217728    # ≥8GB: 128MB
+    elif [ "$mem_mb" -ge 2048 ]; then
+        RMEM_MAX=67108864     # 2-8GB: 64MB
+    else
+        RMEM_MAX=16777216     # <2GB: 16MB（512MB 小内存 VPS 不再有 OOM 风险）
+    fi
+
+    cat > /etc/sysctl.d/99-ACVPN-brutal.conf << SYSCTL
 # ACVPN 暴力网络优化
 # ── TCP 传输 ──
 net.ipv4.tcp_limit_output_bytes = 4194304
-net.ipv4.tcp_notsent_lowat = 4294967295
+# (tcp_notsent_lowat 已移除：UINT_MAX 等于内核默认值，无优化意义；
+#  真正的低延迟需在 sing-box 侧设置 TCP_NOTSENT_LOWAT socket 选项)
 net.ipv4.tcp_autocorking = 0
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_adv_win_scale = -2
 net.ipv4.tcp_fin_timeout = 15
+# 注意：NAT 环境下 tcp_tw_reuse 与 TCP timestamp 存在已知冲突（极少数场景 SYN 被丢），若遇偶发连接失败可移除
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_max_tw_buckets = 5000
 net.ipv4.tcp_keepalive_time = 1200
@@ -261,13 +275,14 @@ net.ipv4.tcp_keepalive_probes = 5
 # ── UDP / Hysteria2 / Tuic 专项（低延迟 QUIC 友好） ──
 net.ipv4.udp_rmem_min = 8192
 net.ipv4.udp_wmem_min = 8192
+# 注意：virtio/虚拟化网卡下 busy polling 通常无效且额外耗 CPU，无收益可自行移除
 net.core.busy_read = 64
 net.core.busy_poll = 64
-# ── 缓冲区 / 队列 ──
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
-net.ipv4.tcp_rmem = 4096 87380 134217728
-net.ipv4.tcp_wmem = 4096 65536 134217728
+# ── 缓冲区 / 队列（上限按内存分级：本机 ${mem_mb}MB → ${RMEM_MAX} 字节） ──
+net.core.rmem_max = ${RMEM_MAX}
+net.core.wmem_max = ${RMEM_MAX}
+net.ipv4.tcp_rmem = 4096 87380 ${RMEM_MAX}
+net.ipv4.tcp_wmem = 4096 65536 ${RMEM_MAX}
 net.core.netdev_max_backlog = 500000
 net.core.somaxconn = 65535
 net.ipv4.tcp_max_syn_backlog = 300000
@@ -282,7 +297,7 @@ vm.vfs_cache_pressure = 50
 SYSCTL
 
     sysctl --system >/dev/null 2>&1 || warn "sysctl 应用部分失败，请手动检查 /etc/sysctl.d/"
-    ok "网络参数已应用 (持久化至 /etc/sysctl.d/99-ACVPN-brutal.conf)"
+    ok "网络参数已应用 (持久化至 /etc/sysctl.d/99-ACVPN-brutal.conf，缓冲区按内存 ${mem_mb}MB 分级)"
 }
 
 # ── RSS 多队列（软中断负载均衡，多核 VPS 吞吐提升明显） ──
@@ -367,6 +382,8 @@ RSS
 
 boost_limits() {
     info "提升资源限制..."
+    # 注意：limits.d 仅对 PAM 登录会话生效；实际跑 sing-box 的 systemd 服务
+    # 由 deploy_singbox.sh 写入 service.d/99-acvpn.conf drop-in（LimitNOFILE）提升
     cat > /etc/security/limits.d/99-ACVPN.conf << 'LIMITS'
 * soft nofile 1048576
 * hard nofile 1048576
@@ -414,7 +431,7 @@ ensure_grub_boot() {
     elif [ -z "$gd" ] || [ "$gd" = "0" ]; then
         # 默认 0 指向第一个菜单项，而 BBRv3 不在第一位 → 显式指定 index
         sed -i "s/^GRUB_DEFAULT=.*/GRUB_DEFAULT=$target/" /etc/default/grub 2>/dev/null
-        update-grub >/dev/null 2>&1 || grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1 || true
+        update-grub >/dev/null 2>&1 || true   # apt 系仅 update-grub，无需 grub2-mkconfig 回退
         if grep -q "^GRUB_DEFAULT=$target" /etc/default/grub 2>/dev/null; then
             ok "GRUB_DEFAULT 已设为 $target (BBRv3)"
         else

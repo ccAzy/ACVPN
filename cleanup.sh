@@ -121,6 +121,14 @@ for path in /etc/s-box /usr/bin/sb /root/websbox; do
 done
 [ $COUNT -eq 0 ] && info "无 sb 文件需清理"
 
+# 删除部署标记（否则重跑部署脚本会幂等跳过，用户还需手动 rm）
+if [ -f /etc/.ACVPN-singbox ]; then
+    rm -f /etc/.ACVPN-singbox
+    ok "已删除部署标记 /etc/.ACVPN-singbox"
+else
+    info "无部署标记"
+fi
+
 # ————————————————————————————————————————————————————————————————
 # 6. 清理 iptables 规则
 # ————————————————————————————————————————————————————————————————
@@ -153,6 +161,16 @@ fi
 echo "--- 清理 nftables ---"
 
 nft delete table inet sing-box 2>/dev/null && ok "已删除 nftables sing-box 表" || info "无 nftables 规则"
+
+# 重新持久化 nftables（防止 /etc/nftables.conf 残留 sing-box 表，重启后复活；
+# 仅当 nftables.conf 存在时覆盖，覆盖会展开原有 include 但语义保留）
+if command -v nft &>/dev/null && [ -f /etc/nftables.conf ]; then
+    if nft list ruleset > /etc/nftables.conf 2>/dev/null; then
+        ok "nftables 规则已重新持久化"
+    else
+        warn "nftables 持久化失败，重启后 sing-box 表可能复活"
+    fi
+fi
 
 # ————————————————————————————————————————————————————————————————
 # 验证

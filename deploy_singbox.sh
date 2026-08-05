@@ -193,7 +193,8 @@ EOSUB
 get_sub_port() {
     local port=""
     if [ -f /etc/s-box/subport.log ]; then
-        port=$(tr -cd '0-9' < /etc/s-box/subport.log 2>/dev/null || true)
+        # grep -oE 取首个数字序列（tr -cd '0-9' 会把日志中多个数字拼接成错误端口）
+        port=$(grep -oE '[0-9]{1,5}' /etc/s-box/subport.log 2>/dev/null | head -1 || true)
         [ -n "$port" ] && { echo "$port"; return 0; }
     fi
     port=$(ss -tlnp 2>/dev/null | grep -iE 'busybox|httpd|lighttpd|nginx' | awk '{print $4}' | grep -oE '[0-9]+$' | head -1 || echo "")
@@ -362,6 +363,46 @@ EOSUB
     fi
 }
 
+# ── 安全加固（sysctl 持久化 + systemd 资源限制） ──
+apply_hardening() {
+    # 1) 安全 sysctl 写入配置文件，重启不丢（原 sysctl -w 重启即失效）
+    cat > /etc/sysctl.d/99-ACVPN-security.conf << 'SEC'
+# ACVPN 安全加固（与 deploy_optimize.sh 的 99-ACVPN-brutal.conf 互补）
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+SEC
+    sysctl --system >/dev/null 2>&1 || true
+    ok "安全 sysctl 已持久化 (/etc/sysctl.d/99-ACVPN-security.conf)"
+
+    # 2) systemd 服务 LimitNOFILE：limits.d 只影响 PAM 登录会话，
+    #    实际跑 sing-box 的 systemd 服务需 drop-in 提升文件描述符上限
+    local applied=false svc
+    for svc in sing-box sb xr; do
+        if [ -f "/etc/systemd/system/${svc}.service" ]; then
+            mkdir -p "/etc/systemd/system/${svc}.service.d" 2>/dev/null || continue
+            cat > "/etc/systemd/system/${svc}.service.d/99-acvpn.conf" << 'LIMIT'
+[Service]
+LimitNOFILE=1048576
+LIMIT
+            applied=true
+        fi
+    done
+    if $applied; then
+        systemctl daemon-reload 2>/dev/null || true
+        for svc in sing-box sb xr; do
+            systemctl is-active "$svc" >/dev/null 2>&1 && systemctl try-restart "$svc" >/dev/null 2>&1 || true
+        done
+        ok "systemd LimitNOFILE=1048576 已生效 (sing-box/sb/xr)"
+    else
+        warn "未找到 sing-box systemd unit，跳过 LimitNOFILE 配置"
+    fi
+}
+
 # ════════════════════════════════════════
 # 主流程
 # ════════════════════════════════════════
@@ -389,11 +430,7 @@ step "4" "Argo 临时隧道"
 start_argo || DEPLOY_OK=false
 
 step "5" "安全加固"
-sysctl -w net.ipv4.conf.all.rp_filter=1 >/dev/null 2>&1 || true
-sysctl -w net.ipv4.tcp_syncookies=1 >/dev/null 2>&1 || true
-sysctl -w net.ipv4.conf.all.accept_source_route=0 >/dev/null 2>&1 || true
-sysctl -w net.ipv4.conf.all.accept_redirects=0 >/dev/null 2>&1 || true
-ok "安全配置已应用"
+apply_hardening
 
 # ── WARP + 域名分流 ──
 setup_warp

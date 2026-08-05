@@ -40,10 +40,22 @@ echo ""
 # ————————————————————————————————————————————————————————————————
 echo "--- 基础状态 ---"
 
-check "sb 命令存在"       which sb
+check "sb 命令存在"       command -v sb
 SB_BIN=""; for _b in /usr/bin/sing-box /usr/local/bin/sing-box /etc/s-box/sing-box; do [ -x "$_b" ] && { SB_BIN="$_b"; break; }; done
 check "sing-box 二进制"   [ -n "$SB_BIN" ]
 check "/etc/s-box 目录"   [ -d /etc/s-box ]
+
+# BBRv3 内核模块（以 modinfo tcp_bbr 模块描述为准，不认内核版本号）
+if command -v modinfo >/dev/null 2>&1; then
+    if modinfo tcp_bbr 2>/dev/null | grep -qi 'bbr3\|bbr v3'; then
+        ok "BBRv3 内核模块已就位"
+        PASS=$((PASS + 1))
+    else
+        warn "tcp_bbr 为主线 BBRv1（未启用 BBRv3 内核，先执行 deploy_optimize.sh）"
+    fi
+else
+    warn "modinfo 不可用，跳过 BBRv3 检测"
+fi
 
 # ————————————————————————————————————————————————————————————————
 # 2. sing-box 进程
@@ -81,13 +93,21 @@ else
     warn "未检测到 UDP 端口（可能无 Hysteria2）"
 fi
 
+# 端口跳跃规则
+if iptables -t nat -L PREROUTING -n 2>/dev/null | grep -qE 'dpts:40000:42000|dpts:43000:45000'; then
+    ok "端口跳跃规则存在 (40000-42000 / 43000-45000)"
+    PASS=$((PASS + 1))
+else
+    warn "未检测到端口跳跃规则"
+fi
+
 # ————————————————————————————————————————————————————————————————
 # 4. Argo 隧道
 # ————————————————————————————————————————————————————————————————
 echo "--- Argo 隧道 ---"
 
 if [ -f /etc/s-box/argo.log ]; then
-    ARGO_URL=$(grep -o 'https://[a-z0-9.-]*\.trycloudflare\.com' /etc/s-box/argo.log 2>/dev/null | head -1)
+    ARGO_URL=$(grep -ao 'https://[a-z0-9.-]*\.trycloudflare\.com' /etc/s-box/argo.log 2>/dev/null | head -1)
     if [ -n "$ARGO_URL" ]; then
         ok "Argo 隧道: $ARGO_URL"
         PASS=$((PASS + 1))

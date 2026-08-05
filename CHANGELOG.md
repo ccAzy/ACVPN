@@ -8,6 +8,18 @@
 - **iptables 清理后未重新持久化** — rules.v4 残留旧 DNAT 规则，重启后端口跳跃规则复活；清理后重新 iptables-save 同步
 - **README/SKILL UTF-8 BOM** — 移除文档 BOM，脚本 BOM 此前已修
 
+### 🔧 优化（第二轮审计）
+- **缓冲区按内存分级** — rmem/wmem 上限不再固定 128MB：≥8GB→128MB、2-8GB→64MB、<2GB→16MB，512MB 小内存 VPS 不再有 OOM 风险（`deploy_optimize.sh`）
+- **systemd 服务 LimitNOFILE** — limits.d 只对 PAM 登录会话生效，对实际跑 sing-box 的 systemd 服务无效；现写入 sing-box/sb/xr 的 `service.d/99-acvpn.conf` drop-in 并热重启生效（`deploy_singbox.sh`）
+- **安全加固持久化** — rp_filter/syncookies/accept_* 由运行时 `sysctl -w`（重启即失效）改为写入 `/etc/sysctl.d/99-ACVPN-security.conf`（`deploy_singbox.sh`）
+- **清理补 nftables 持久化** — `nft delete` 后同步重写 /etc/nftables.conf，防 sing-box 表重启复活；清理同时删除 `/etc/.ACVPN-singbox` 部署标记（`cleanup.sh`）
+- **verify.sh 增强** — 新增 BBRv3 检测（`modinfo tcp_bbr` 模块描述为准）、端口跳跃规则验证；argo.log 提取加 `-a` 防二进制误判；`which` 改 `command -v`
+
+### ✏️ 清理
+- **移除 tcp_notsent_lowat=4294967295** — 等于内核默认 UINT_MAX，无优化意义且误导；真正的低延迟应在 sing-box 侧设置 TCP_NOTSENT_LOWAT socket 选项
+- **移除 grub2-mkconfig 回退** — 脚本仅支持 apt 系（update-grub），该 fallback 永远无效
+- **订阅端口提取改 grep -oE** — `tr -cd '0-9'` 会把日志中多个数字拼接成错误端口，改为取首个数字序列
+
 
 ## 2026-08-01
 
