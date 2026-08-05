@@ -3,6 +3,7 @@
 ## 2026-08-05
 
 ### 🐛 修复
+- **arm64 VPS 取不到 BBRv3-max** — Releases API `per_page=2` 在 x86_64 更新后最近 2 个 release 可能同架构，arm64 会误走 kernel.org 回退；改为 `per_page=10` 覆盖双架构 × max/标准 × 多版本
 - **14 处 raw 链接 404** — README/SKILL/脚本注释中的 `raw.githubusercontent.com/ccAzy/ACVPN/main/` 全部失效（默认分支为 master），改为将默认分支重命名为 main，链接零改动自然生效
 - **cleanup 漏清 acvpn-rss.service** — 优化脚本注册的 RSS 多队列开机自启服务卸载后残留，补入 systemd unit 清理清单
 - **iptables 清理后未重新持久化** — rules.v4 残留旧 DNAT 规则，重启后端口跳跃规则复活；清理后重新 iptables-save 同步

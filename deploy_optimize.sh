@@ -149,8 +149,10 @@ install_bbrv3() {
 
     info "获取最新 BBRv3 内核版本..."
 
-    # 通过 GitHub Releases API 获取下载地址（per_page=2 包含 max+标准）
-    local RELEASES_API="https://api.github.com/repos/ccAzy/Actions-bbr-v3/releases?per_page=2"
+    # 通过 GitHub Releases API 获取下载地址
+    # per_page=10 覆盖 x86_64/arm64 × max/标准 × 最近多版本（原 per_page=2 在 x86_64 更新后
+    # 最近 2 个 release 可能同架构，arm64 VPS 会取不到 max 版本而误走 kernel.org 回退）
+    local RELEASES_API="https://api.github.com/repos/ccAzy/Actions-bbr-v3/releases?per_page=10"
     local DOWNLOAD_URL=""
     local TAG_ARCH="$DEB_ARCH"
     [ "$DEB_ARCH" = "amd64" ] && TAG_ARCH="x86_64"
