@@ -71,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh 
 | WARP 域名分流 | ChatGPT / Netflix / Google 等走 WARP 出口，解锁流媒体 |
 | 订阅链接 | Clash YAML + Sing-box JSON + 通用聚合，不用手写配置 |
 | systemd 资源限制 + 安全加固 | sing-box 服务 LimitNOFILE 提升；rp_filter/syncookies 等安全参数持久化，重启不丢 |
-| 防主动探测（降低 IP 被封风险） | 443 SYN / UDP 跳跃段 / SSH 按来源 IP 限速 + 单 IP 连接数上限（hashlimit/connlimit，DROP 不暴露端口）；conntrack 表容量按内存分级，防表满丢连接引发重连风暴 |
+| 防主动探测（降低 IP 被封风险） | 从 sb.json 动态提取全部协议端口统一防护：Reality/AnyTLS TCP 限速、hy2/tuic UDP 限速、VMess 明文端口公网封锁（仅 Argo 本地回环可达）、SSH 限速、单 IP 连接数上限，IPv6 对称；conntrack 表容量按内存分级 |
 
 > 全部参数持久化（`/etc/sysctl.d/`、systemd drop-in），重启不丢，不需要二次配置。
 

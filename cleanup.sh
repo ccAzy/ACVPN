@@ -156,12 +156,24 @@ fi
 
 iptables -t nat -D POSTROUTING -m mark --mark 0x40000/0xff0000 -j MASQUERADE 2>/dev/null && ok "已删除 MASQUERADE 规则" || info "无 MASQUERADE 规则"
 
-# 防主动探测规则（hashlimit 限速 + connlimit 连接数上限）
+# 防主动探测规则（hashlimit 限速 + connlimit 连接数上限 + VMess 明文锁 lo）
 PROBE_CLEANED=0
 while read -r num; do
     [ -n "$num" ] && iptables -D INPUT "$num" 2>/dev/null && PROBE_CLEANED=$((PROBE_CLEANED + 1))
-done < <(iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'probe443|probeudp|probeudp2|probe22' | awk '{print $1}' | sort -rn)
-iptables -D INPUT -p tcp --dport 443 -m state --state NEW -m connlimit --connlimit-above 200 -j DROP 2>/dev/null && PROBE_CLEANED=$((PROBE_CLEANED + 1)) || true
+done < <(iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg|#conn/' | awk '{print $1}' | sort -rn)
+if command -v ip6tables >/dev/null 2>&1; then
+    while read -r num; do
+        [ -n "$num" ] && ip6tables -D INPUT "$num" 2>/dev/null && PROBE_CLEANED=$((PROBE_CLEANED + 1))
+    done < <(ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg|#conn/' | awk '{print $1}' | sort -rn)
+fi
+# VMess 明文端口锁 lo（从 sb.json 取端口精确删除，v4+v6）
+if [ -f /etc/s-box/sb.json ]; then
+    VM_PORT=$(jq -r '.inbounds[] | select(.type=="vmess" and (.tls.enabled // "false") == "false") | .listen_port' /etc/s-box/sb.json 2>/dev/null)
+    if [ -n "$VM_PORT" ] && [ "$VM_PORT" != "null" ]; then
+        iptables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null && PROBE_CLEANED=$((PROBE_CLEANED + 1)) || true
+        command -v ip6tables >/dev/null 2>&1 && ip6tables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
+    fi
+fi
 [ "$PROBE_CLEANED" -gt 0 ] && ok "防主动探测规则已清理 (${PROBE_CLEANED} 条)" || info "无防主动探测规则"
 
 # 重新持久化（防止 /etc/iptables/rules.v4 残留旧规则，重启后端口跳跃规则复活）

@@ -3,7 +3,14 @@
 ## 2026-08-05
 
 ### 🛡️ 防封（新增）
-- **防主动探测规则（apply_antiprobe）** — GFW active probing 会批量 TLS 探测、扫描 UDP 跳跃段、爆破 SSH；现按来源 IP 限速：443 SYN 50/s、UDP 跳跃段 200/s、SSH 3/min（hashlimit），单来源 IP 到 443 连接数上限 200（connlimit），全部 DROP 不暴露端口有服务，与端口跳跃同三层持久化
+- **防主动探测升级为动态端口防护（apply_antiprobe 重写）** — 从 sb.json 动态提取全部 inbounds 端口统一防护，不再写死 443：
+  - **VMess-WS 明文端口公网封锁**（最大风险修复）— sb.sh 的 VMess-WS 是 tls=false 明文 HTTP（8080/8880 等 CF 标准端口），公网裸奔时 GFW 一探即识；现 `! -i lo DROP` 仅允许 Argo/cloudflared 本地回环访问，公网完全不可达
+  - Reality/AnyTLS 等 TCP 端口 SYN 限速（50/s burst 100，hashlimit）
+  - hy2/tuic 主 UDP 端口限速（200/s burst 400，跳跃段原本已覆盖）
+  - IPv6 全部规则对称（ip6tables），防 v6 地址裸奔
+  - SSH 限速 + 单 IP 连接数上限 200 保留
+- **安全 sysctl 补强** — send_redirects=0、ICMP 广播忽略/伪造错误响应忽略、IPv6 对称加固（accept_redirects/accept_source_route/accept_ra=0）
+- **verify.sh/cleanup.sh 同步** — 检查/清理动态端口规则与 IPv6 规则
 - **conntrack 调优** — 连接跟踪表容量按内存分级（≥8GB 100万 / 2-8GB 50万 / <2GB 13万条），超时缩短（established 1200s / time_wait 30s / udp 30s）；表满会丢新连接 → 客户端反复重连 → 连接风暴特征（易被判代理），哈希桶容量运行时同步（模块参数非 sysctl）
 - **verify.sh 新增防探测规则检查** — 部署自检包含 443/SSH 限速规则存在性
 - **cleanup.sh 同步清理防探测规则** — 卸载时删除 hashlimit/connlimit 规则并重新持久化

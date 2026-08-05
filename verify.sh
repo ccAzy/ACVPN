@@ -101,12 +101,20 @@ else
     warn "未检测到端口跳跃规则"
 fi
 
-# 防主动探测规则（443 SYN / UDP跳跃段 / SSH 限速 + 单IP连接数上限）
-if iptables -L INPUT -n 2>/dev/null | grep -qE 'probe443|probe22'; then
-    ok "防主动探测规则存在 (443/SSH 限速 + 连接数上限)"
+# 防主动探测规则（动态端口限速 + SSH + 连接数上限 + IPv6 对称）
+if iptables -L INPUT -n 2>/dev/null | grep -qE 'limit: avg|#conn/'; then
+    ok "防主动探测规则存在 (动态端口限速 + SSH + 连接数上限)"
     PASS=$((PASS + 1))
 else
     warn "未检测到防主动探测规则"
+fi
+# VMess 明文端口公网封锁（仅 lo 可达，防明文 HTTP 特征暴露）
+VMWS_LOCKED=$(iptables -L INPUT -n 2>/dev/null | grep -c 'DROP.*lo')
+if [ "$VMWS_LOCKED" -gt 0 ]; then
+    ok "VMess 明文端口公网封锁中 (仅 Argo 本地回环可达)"
+    PASS=$((PASS + 1))
+else
+    warn "VMess 明文端口未封锁"
 fi
 
 # ————————————————————————————————————————————————————————————————

@@ -375,6 +375,17 @@ net.ipv4.conf.all.accept_source_route = 0
 net.ipv4.conf.default.accept_source_route = 0
 net.ipv4.conf.all.accept_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+# IPv6 对称加固（VPS 有 v6 地址时同样防探测/防伪造）
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv6.conf.default.accept_source_route = 0
+net.ipv6.conf.all.accept_ra = 0
+net.ipv6.conf.default.accept_ra = 0
 SEC
     sysctl --system >/dev/null 2>&1 || true
     ok "安全 sysctl 已持久化 (/etc/sysctl.d/99-ACVPN-security.conf)"
@@ -465,39 +476,111 @@ KEEP
 }
 
 # ── 防主动探测/端口扫描（降低 IP 被封风险） ──
-# GFW active probing 会批量 TLS 探测、扫描 UDP 跳跃段、爆破 SSH；
-# 按来源 IP 限速：正常代理客户端远低于阈值，不影响使用。
+# GFW active probing 会批量 TLS 探测、扫描 UDP 端口段、爆破 SSH。
+# 核心思路：从 sb.json 动态提取所有协议端口统一防护——
+#   · VMess-WS 明文端口（tls=false，仅 Argo 本地回环使用）公网直接 DROP，不暴露明文 HTTP 特征
+#   · Reality/AnyTLS 等 TCP 端口按来源 IP 限速
+#   · hy2/tuic 主 UDP 端口限速（跳跃段在 config_port_hopping 已覆盖）
+#   · IPv6 对称防护（防 v6 地址裸奔）
 # 用 DROP 而非 REJECT —— 对探测者不暴露"端口有服务"。
 apply_antiprobe() {
+    local -a TCP_PORTS=() UDP_PORTS=() VM_PORT=""
+    local p type tls_en
+    # 动态提取 inbounds 端口；VMess 明文 WS 端口单独记录（锁 lo）
+    while IFS='|' read -r p type tls_en; do
+        [ -z "$p" ] || [ "$p" = "null" ] && continue
+        if [ "$type" = "vmess" ] && [ "$tls_en" = "false" ]; then
+            VM_PORT="$p"
+        elif [ "$type" = "hysteria2" ] || [ "$type" = "tuic" ]; then
+            UDP_PORTS+=("$p")
+        else
+            TCP_PORTS+=("$p")
+        fi
+    done < <(jq -r '.inbounds[] | "\(.listen_port)|\(.type)|\(.tls.enabled // "false")"' /etc/s-box/sb.json 2>/dev/null)
+
     # 清理旧规则（幂等：重复部署/重跑不叠加）
-    iptables -D INPUT -p tcp --dport 443 -m state --state NEW -m connlimit --connlimit-above 200 -j DROP 2>/dev/null || true
-    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'probe443|probeudp|probeudp2|probe22' | \
+    # a) hashlimit 限速规则（按名字段行号删除，v4+v6）
+    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg' | \
       awk '{print $1}' | sort -rn | while read -r num; do
         iptables -D INPUT "$num" 2>/dev/null || true
     done || true
+    # b) connlimit 连接数上限规则（iptables -L 输出特征为 #conn/）
+    iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E '#conn/' | \
+      awk '{print $1}' | sort -rn | while read -r num; do
+        iptables -D INPUT "$num" 2>/dev/null || true
+    done || true
+    # c) VMess 明文端口锁 lo 规则（无 hashlimit-name，需按端口精确删除，v4+v6）
+    if [ -n "$VM_PORT" ]; then
+        iptables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
+        command -v ip6tables >/dev/null 2>&1 && ip6tables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
+    fi
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg|#conn/' | \
+          awk '{print $1}' | sort -rn | while read -r num; do
+            ip6tables -D INPUT "$num" 2>/dev/null || true
+        done || true
+    fi
 
-    # 1) 443 端口 SYN 限速：防批量 TLS 主动探测（burst 100 容忍多设备/多应用并发建连）
-    iptables -A INPUT -p tcp --dport 443 -m state --state NEW -m hashlimit \
-      --hashlimit-above 50/sec --hashlimit-burst 100 --hashlimit-mode srcip \
-      --hashlimit-name probe443 -j DROP 2>/dev/null || warn "443 SYN 限速规则添加失败（hashlimit 模块可能缺失）"
+    local i=0
+    # 1) VMess-WS 明文端口：仅允许本地回环（Argo/cloudflared 经 lo 访问），公网一律 DROP
+    if [ -n "$VM_PORT" ]; then
+        iptables -A INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null && i=$((i + 1))
+        command -v ip6tables >/dev/null 2>&1 && ip6tables -A INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
+    fi
 
-    # 2) UDP 跳跃段限速：防端口段扫描（hy2/tuic 为长连接，不会高频新建流）
+    # 2) TCP 代理端口（Reality/AnyTLS/其他）：SYN 按来源限速，防批量 TLS 主动探测
+    for p in "${TCP_PORTS[@]}"; do
+        [ "$p" = "$VM_PORT" ] && continue
+        iptables -A INPUT -p tcp --dport "$p" -m state --state NEW -m hashlimit \
+          --hashlimit-above 50/sec --hashlimit-burst 100 --hashlimit-mode srcip \
+          --hashlimit-name "probe$i" -j DROP 2>/dev/null && i=$((i + 1))
+        command -v ip6tables >/dev/null 2>&1 && ip6tables -A INPUT -p tcp --dport "$p" -m state --state NEW -m hashlimit \
+          --hashlimit-above 50/sec --hashlimit-burst 100 --hashlimit-mode srcip \
+          --hashlimit-name "probe$i" -j DROP 2>/dev/null || true
+    done
+
+    # 3) UDP 代理主端口（hy2/tuic）：限速防扫描（长连接不会高频新建流）
+    for p in "${UDP_PORTS[@]}"; do
+        iptables -A INPUT -p udp --dport "$p" -m hashlimit \
+          --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
+          --hashlimit-name "probe$i" -j DROP 2>/dev/null && i=$((i + 1))
+        command -v ip6tables >/dev/null 2>&1 && ip6tables -A INPUT -p udp --dport "$p" -m hashlimit \
+          --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
+          --hashlimit-name "probe$i" -j DROP 2>/dev/null || true
+    done
+
+    # 4) UDP 跳跃段限速（40000-42000 / 43000-45000，防端口段扫描）
     iptables -A INPUT -p udp --dport 40000:42000 -m hashlimit \
       --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
-      --hashlimit-name probeudp -j DROP 2>/dev/null || true
+      --hashlimit-name "probe$i" -j DROP 2>/dev/null && i=$((i + 1))
     iptables -A INPUT -p udp --dport 43000:45000 -m hashlimit \
       --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
-      --hashlimit-name probeudp2 -j DROP 2>/dev/null || true
+      --hashlimit-name "probe$i" -j DROP 2>/dev/null && i=$((i + 1))
+    command -v ip6tables >/dev/null 2>&1 && {
+        ip6tables -A INPUT -p udp --dport 40000:42000 -m hashlimit \
+          --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
+          --hashlimit-name "probe$i" -j DROP 2>/dev/null || true
+        ip6tables -A INPUT -p udp --dport 43000:45000 -m hashlimit \
+          --hashlimit-above 200/sec --hashlimit-burst 400 --hashlimit-mode srcip \
+          --hashlimit-name "probe$i" -j DROP 2>/dev/null || true
+    }
 
-    # 3) SSH 爆破防御（轻量 fail2ban：正常登录远低于 3/min，暴力破解立即触发丢包）
+    # 5) SSH 爆破防御（轻量 fail2ban：正常登录远低于 3/min）
     iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m hashlimit \
       --hashlimit-above 3/min --hashlimit-burst 5 --hashlimit-mode srcip \
       --hashlimit-name probe22 -j DROP 2>/dev/null || true
+    command -v ip6tables >/dev/null 2>&1 && ip6tables -A INPUT -p tcp --dport 22 -m state --state NEW -m hashlimit \
+      --hashlimit-above 3/min --hashlimit-burst 5 --hashlimit-mode srcip \
+      --hashlimit-name probe22 -j DROP 2>/dev/null || true
 
-    # 4) 单来源 IP 到 443 的连接数上限：防连接数特征与 CC（家庭 NAT 200 连接足够）
-    iptables -A INPUT -p tcp --dport 443 -m state --state NEW -m connlimit --connlimit-above 200 -j DROP 2>/dev/null || true
+    # 6) 单来源 IP 到各 TCP 代理端口的连接数上限（防连接数特征/CC；家庭 NAT 200 连接足够）
+    for p in "${TCP_PORTS[@]}"; do
+        [ "$p" = "$VM_PORT" ] && continue
+        iptables -A INPUT -p tcp --dport "$p" -m state --state NEW -m connlimit --connlimit-above 200 -j DROP 2>/dev/null || true
+        command -v ip6tables >/dev/null 2>&1 && ip6tables -A INPUT -p tcp --dport "$p" -m state --state NEW -m connlimit --connlimit-above 200 -j DROP 2>/dev/null || true
+    done
 
-    # 持久化（与端口跳跃同三层兜底）
+    # 持久化（与端口跳跃同三层兜底，IPv6 一并保存）
     if netfilter-persistent save 2>/dev/null; then
         ok "防探测规则已持久化 (netfilter-persistent)"
     elif service iptables save 2>/dev/null; then
@@ -510,7 +593,7 @@ apply_antiprobe() {
     else
         warn "无法持久化防探测规则，重启后需重新执行 deploy_singbox.sh"
     fi
-    ok "防主动探测已启用: 443 SYN/UDP跳跃段/SSH 限速 + 单IP连接数上限"
+    ok "防主动探测已启用: ${#TCP_PORTS[@]} TCP + ${#UDP_PORTS[@]} UDP 代理端口限速${VM_PORT:+ + VMess明文锁lo} + SSH + 单IP连接数上限 + IPv6对称"
 }
 
 # ════════════════════════════════════════
