@@ -123,12 +123,17 @@ else
 fi
 # VMess 明文端口公网封锁（仅 lo 可达，防明文 HTTP 特征暴露）
 # 注意：nf_tables 后端 iptables -L 不显示 !lo，用 iptables-save 原文匹配
-VMWS_LOCKED=$(iptables-save 2>/dev/null | grep -c '! -i lo')
-if [ "$VMWS_LOCKED" -gt 0 ]; then
-    ok "VMess 明文端口公网封锁中 (仅 Argo 本地回环可达)"
-    PASS=$((PASS + 1))
+# VMESS_LOCK=off 可跳过封锁（明文端口暴露公网，接受被探测风险——需用户明确选择）
+if [ "${VMESS_LOCK:-on}" = "off" ]; then
+    info "VMess 明文端口封锁已关闭 (VMESS_LOCK=off,明文端口暴露公网)"
 else
-    warn "VMess 明文端口未封锁"
+    VMWS_LOCKED=$(iptables-save 2>/dev/null | grep -c '! -i lo')
+    if [ "$VMWS_LOCKED" -gt 0 ]; then
+        ok "VMess 明文端口公网封锁中 (仅 Argo 本地回环可达)"
+        PASS=$((PASS + 1))
+    else
+        warn "VMess 明文端口未封锁 (如需封锁: 重跑 deploy_singbox.sh 或 iptables -A INPUT ! -i lo -p tcp --dport <端口> -j DROP)"
+    fi
 fi
 
 # ————————————————————————————————————————————————————————————————
@@ -169,6 +174,7 @@ if [ -f /etc/s-box/subport.log ] && [ -f /etc/s-box/subtoken.log ]; then
     ok "订阅端口: $SUBPORT"
 
     if [ -n "$SERVER_IP" ]; then
+        # 公网实测（外部可达性）
         for fmt in clmi.yaml sbox.json jhsub.txt; do
             URL="http://${SERVER_IP}:${SUBPORT}/${SUBTOKEN}/${fmt}"
             HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "$URL" 2>/dev/null || echo "000")
@@ -181,8 +187,21 @@ if [ -f /etc/s-box/subport.log ] && [ -f /etc/s-box/subtoken.log ]; then
             fi
         done
     else
-        info "跳过 HTTP 测试（未提供 SERVER_IP）"
-        info "手动验证: curl http://<IP>:${SUBPORT}/${SUBTOKEN}/clmi.yaml"
+        # 本机实测：无 SERVER_IP 时验证订阅服务进程是否存活
+        # （busybox httpd 未启动/未监听时，公网必然不可达——仅查 subport.log 会漏检）
+        LOCAL_HTTP=000
+        for fmt in clmi.yaml sbox.json jhsub.txt; do
+            URL="http://127.0.0.1:${SUBPORT}/${SUBTOKEN}/${fmt}"
+            LOCAL_HTTP=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 "$URL" 2>/dev/null || echo "000")
+            [ "$LOCAL_HTTP" = "200" ] && { ok "$fmt 本机可访问 (HTTP 200)" && break; }
+        done
+        if [ "$LOCAL_HTTP" = "200" ]; then
+            PASS=$((PASS + 1))
+        else
+            fail "订阅服务未响应（本机 HTTP $LOCAL_HTTP）— 检查 busybox httpd 是否运行"
+            fail "修复: crontab -l | grep busybox; nohup busybox httpd -f -p $SUBPORT -h /root/websbox &"
+            FAIL=$((FAIL + 1))
+        fi
     fi
 else
     fail "订阅配置文件缺失 (subport.log / subtoken.log)"

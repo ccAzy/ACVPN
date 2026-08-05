@@ -475,6 +475,41 @@ KEEP
     ok "Argo 保活已安装（每 3 分钟自检，掉线自动拉起并刷新订阅）"
 }
 
+# ── 订阅 HTTP 服务保障（busybox httpd） ──
+# 订阅文件由 busybox httpd 提供（-h /root/websbox），历史上依赖 sb.sh 的 @reboot crontab，
+# crontab 一旦被覆盖/丢失，重启后订阅端口无监听，客户端更新订阅必然失败。
+# 本函数幂等补齐：@reboot crontab + 立即启动。
+ensure_sub_httpd() {
+    local port
+    port=$(get_sub_port 2>/dev/null)
+    [ -z "$port" ] && { warn "无法获取订阅端口，跳过订阅服务保障"; return 1; }
+    command -v busybox >/dev/null 2>&1 || { warn "busybox 不可用，跳过订阅服务保障"; return 1; }
+
+    # 1) @reboot crontab（幂等；与 sb.sh 同源写法，重启 10s 后拉起）
+    if crontab -l 2>/dev/null | grep -q 'busybox httpd'; then
+        info "@reboot 订阅服务自启已存在"
+    else
+        ( crontab -l 2>/dev/null; echo '@reboot sleep 10 && /bin/bash -c "busybox httpd -f -p $(cat /etc/s-box/subport.log 2>/dev/null) -h /root/websbox > /dev/null 2>&1 &"' ) | crontab - 2>/dev/null
+        ok "已写入 @reboot 订阅服务自启"
+    fi
+
+    # 2) 立即启动（端口未监听才启动；用 -x 精确进程名，避免 pkill -f 匹配到自身 shell）
+    if ss -tln 2>/dev/null | grep -q ":$port"; then
+        ok "订阅 HTTP 服务运行中 (端口 $port)"
+    else
+        pkill -x busybox 2>/dev/null || true
+        sleep 1
+        mkdir -p /root/websbox
+        nohup busybox httpd -f -p "$port" -h /root/websbox >/dev/null 2>&1 &
+        sleep 2
+        if ss -tln 2>/dev/null | grep -q ":$port"; then
+            ok "订阅 HTTP 服务已启动 (端口 $port)"
+        else
+            warn "订阅 HTTP 服务启动失败，请手动检查"
+        fi
+    fi
+}
+
 # ── 防主动探测/端口扫描（降低 IP 被封风险） ──
 # GFW active probing 会批量 TLS 探测、扫描 UDP 端口段、爆破 SSH。
 # 核心思路：从 sb.json 动态提取所有协议端口统一防护——
@@ -511,7 +546,8 @@ apply_antiprobe() {
         iptables -D INPUT "$num" 2>/dev/null || true
     done || true
     # c) VMess 明文端口锁 lo 规则（无 hashlimit-name，需按端口精确删除，v4+v6）
-    if [ -n "$VM_PORT" ]; then
+    #    VMESS_LOCK=off 时跳过（明文端口暴露公网，需用户明确选择）
+    if [ -n "$VM_PORT" ] && [ "${VMESS_LOCK:-on}" != "off" ]; then
         iptables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
         command -v ip6tables >/dev/null 2>&1 && ip6tables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
     fi
@@ -524,7 +560,8 @@ apply_antiprobe() {
 
     local i=0
     # 1) VMess-WS 明文端口：仅允许本地回环（Argo/cloudflared 经 lo 访问），公网一律 DROP
-    if [ -n "$VM_PORT" ]; then
+    #    VMESS_LOCK=off 时跳过封锁
+    if [ -n "$VM_PORT" ] && [ "${VMESS_LOCK:-on}" != "off" ]; then
         iptables -A INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null && i=$((i + 1))
         command -v ip6tables >/dev/null 2>&1 && ip6tables -A INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
     fi
@@ -617,6 +654,8 @@ apply_argo_patch
 step "2" "配置订阅链接"
 setup_subscription || DEPLOY_OK=false
 wait_subscription || true
+# 订阅 HTTP 服务保障（busybox httpd 缺失时补齐 + @reboot 自启）
+ensure_sub_httpd || true
 
 step "3" "端口跳跃（Hy2 + Tuic）"
 config_port_hopping || true

@@ -145,7 +145,25 @@ PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null) \
 
 # ── BBRv3 ──
 install_bbrv3() {
-    echo "$CUR_KERNEL" | grep -q "bbrv3-max" && { ok "已是 BBRv3-max: $CUR_KERNEL"; return 0; }
+    # 已是 bbrv3-max 时：比较当前版本与最新 release，旧版自动升级，最新才跳过
+    if echo "$CUR_KERNEL" | grep -q "bbrv3-max"; then
+        local cur_ver latest_tag latest_ver
+        cur_ver=$(echo "$CUR_KERNEL" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+        # per_page=10 按时间倒序，取第一个含 max 的 tag（x86_64/arm64 均可）
+        latest_tag=$(curl -fsL -H "$UA" --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 20 \
+          "https://api.github.com/repos/ccAzy/Actions-bbr-v3/releases?per_page=10" 2>/dev/null \
+          | jq -r '.[].tag_name // empty' | grep -F 'max' | head -1 || echo "")
+        latest_ver=$(echo "$latest_tag" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+        if [ -z "$latest_ver" ]; then
+            ok "已是 BBRv3-max: $CUR_KERNEL（无法确认最新版本，跳过）"
+            return 0
+        elif [ "$cur_ver" = "$latest_ver" ]; then
+            ok "已是最新 BBRv3-max: $CUR_KERNEL"
+            return 0
+        else
+            warn "当前 $CUR_KERNEL，最新 ${latest_ver}-max，开始升级..."
+        fi
+    fi
 
     info "获取最新 BBRv3 内核版本..."
 
