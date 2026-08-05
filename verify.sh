@@ -123,17 +123,17 @@ else
 fi
 # VMess 明文端口公网封锁（仅 lo 可达，防明文 HTTP 特征暴露）
 # 注意：nf_tables 后端 iptables -L 不显示 !lo，用 iptables-save 原文匹配
-# VMESS_LOCK=off 可跳过封锁（明文端口暴露公网，接受被探测风险——需用户明确选择）
-if [ "${VMESS_LOCK:-on}" = "off" ]; then
-    info "VMess 明文端口封锁已关闭 (VMESS_LOCK=off,明文端口暴露公网)"
-else
+# VMESS_LOCK=on 时才要求封锁（默认 off：明文端口暴露公网直连，用户默认放开）
+if [ "${VMESS_LOCK:-off}" = "on" ]; then
     VMWS_LOCKED=$(iptables-save 2>/dev/null | grep -c '! -i lo')
     if [ "$VMWS_LOCKED" -gt 0 ]; then
         ok "VMess 明文端口公网封锁中 (仅 Argo 本地回环可达)"
         PASS=$((PASS + 1))
     else
-        warn "VMess 明文端口未封锁 (如需封锁: 重跑 deploy_singbox.sh 或 iptables -A INPUT ! -i lo -p tcp --dport <端口> -j DROP)"
+        warn "VMess 明文端口未封锁 (VMESS_LOCK=on 但规则缺失,重跑 deploy_singbox.sh)"
     fi
+else
+    info "VMess 明文端口封锁已关闭 (默认放开,明文端口暴露公网)"
 fi
 
 # ————————————————————————————————————————————————————————————————

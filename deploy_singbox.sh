@@ -546,8 +546,8 @@ apply_antiprobe() {
         iptables -D INPUT "$num" 2>/dev/null || true
     done || true
     # c) VMess 明文端口锁 lo 规则（无 hashlimit-name，需按端口精确删除，v4+v6）
-    #    VMESS_LOCK=off 时跳过（明文端口暴露公网，需用户明确选择）
-    if [ -n "$VM_PORT" ] && [ "${VMESS_LOCK:-on}" != "off" ]; then
+    #    VMESS_LOCK=on 时封锁（默认 off：明文端口暴露公网，用户默认放开）
+    if [ -n "$VM_PORT" ] && [ "${VMESS_LOCK:-off}" = "on" ]; then
         iptables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
         command -v ip6tables >/dev/null 2>&1 && ip6tables -D INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
     fi
@@ -559,9 +559,8 @@ apply_antiprobe() {
     fi
 
     local i=0
-    # 1) VMess-WS 明文端口：仅允许本地回环（Argo/cloudflared 经 lo 访问），公网一律 DROP
-    #    VMESS_LOCK=off 时跳过封锁
-    if [ -n "$VM_PORT" ] && [ "${VMESS_LOCK:-on}" != "off" ]; then
+    # 1) VMess-WS 明文端口：默认放开公网直连（用户选择）；VMESS_LOCK=on 时仅允许本地回环
+    if [ -n "$VM_PORT" ] && [ "${VMESS_LOCK:-off}" = "on" ]; then
         iptables -A INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null && i=$((i + 1))
         command -v ip6tables >/dev/null 2>&1 && ip6tables -A INPUT -p tcp --dport "$VM_PORT" ! -i lo -j DROP 2>/dev/null || true
     fi

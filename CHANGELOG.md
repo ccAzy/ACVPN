@@ -50,7 +50,7 @@
 ### 🔧 修复（第四轮：6 机集群实测）
 - **订阅 HTTP 服务保障（ensure_sub_httpd）** — 订阅文件由 busybox httpd 提供，历史上依赖 sb.sh 的 @reboot crontab；crontab 被覆盖/丢失后订阅端口重启即无监听（实测 cc 机中招，订阅 URL 静默失效）。现部署时幂等补齐 @reboot 自启 + 立即启动
 - **verify.sh 订阅本机实测** — 此前不传 SERVER_IP 时只查 subport.log 文件不测端口，busybox httpd 未启动会漏检；现改为本机 127.0.0.1 HTTP 实测，订阅服务挂掉直接 FAIL 并给出修复命令
-- **VMESS_LOCK 开关** — VMess 明文端口锁 lo 为防探测核心手段，但部分场景（用户明确选择、需明文直连）要放开；现支持 `VMESS_LOCK=off bash deploy_singbox.sh` 跳过封锁，verify.sh 同步感知（`VMESS_LOCK=off bash verify.sh` 不再告警）
+- **VMESS_LOCK 开关** — VMess 明文端口锁 lo 为可选防探测手段；**默认放开公网直连**（用户默认选择），`VMESS_LOCK=on bash deploy_singbox.sh` 才封锁（仅 Argo 回环可达），verify.sh 同步感知
 - **deploy_optimize.sh 内核版本自动升级** — install_bbrv3 原先检测到 bbrv3-max 即跳过，无法升级到更新版本；现比较当前内核与最新 release（per_page=10 取首个 max tag），旧版自动升级，最新才跳过
 
 ## 2026-08-01
