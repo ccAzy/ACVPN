@@ -160,11 +160,11 @@ iptables -t nat -D POSTROUTING -m mark --mark 0x40000/0xff0000 -j MASQUERADE 2>/
 PROBE_CLEANED=0
 while read -r num; do
     [ -n "$num" ] && iptables -D INPUT "$num" 2>/dev/null && PROBE_CLEANED=$((PROBE_CLEANED + 1))
-done < <(iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg|#conn/' | awk '{print $1}' | sort -rn)
+done < <(iptables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: above|#conn' | awk '{print $1}' | sort -rn)
 if command -v ip6tables >/dev/null 2>&1; then
     while read -r num; do
         [ -n "$num" ] && ip6tables -D INPUT "$num" 2>/dev/null && PROBE_CLEANED=$((PROBE_CLEANED + 1))
-    done < <(ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: avg|#conn/' | awk '{print $1}' | sort -rn)
+    done < <(ip6tables -L INPUT -n --line-numbers 2>/dev/null | grep -E 'limit: above|#conn' | awk '{print $1}' | sort -rn)
 fi
 # VMess 明文端口锁 lo（从 sb.json 取端口精确删除，v4+v6）
 if [ -f /etc/s-box/sb.json ]; then
