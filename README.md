@@ -6,6 +6,7 @@
 
 <h1 align="center">ACVPN</h1>
 <p align="center"><strong>有了 VPS 还想一键部署翻墙节点？两条命令搞定。</strong></p>
+<p align="center"><strong>已整合原 <a href="https://github.com/ccAzy/YGVPN">YGVPN</a>(已归档),本项目为唯一主仓库,后续在此持续维护。</strong></p>
 
 ---
 
