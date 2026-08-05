@@ -95,7 +95,8 @@ COUNT=0
 for unit in /etc/systemd/system/sing-box.service \
             /etc/systemd/system/cloudflared.service \
             /etc/systemd/system/cloudflared-update.service \
-            /etc/systemd/system/cloudflared-update.timer; do
+            /etc/systemd/system/cloudflared-update.timer \
+            /etc/systemd/system/acvpn-rss.service; do
     if [ -f "$unit" ]; then
         rm -f "$unit"
         COUNT=$((COUNT + 1))
@@ -138,6 +139,13 @@ else
 fi
 
 iptables -t nat -D POSTROUTING -m mark --mark 0x40000/0xff0000 -j MASQUERADE 2>/dev/null && ok "已删除 MASQUERADE 规则" || info "无 MASQUERADE 规则"
+
+# 重新持久化（防止 /etc/iptables/rules.v4 残留旧规则，重启后端口跳跃规则复活）
+if command -v iptables-save &>/dev/null; then
+    mkdir -p /etc/iptables 2>/dev/null || true
+    iptables-save > /etc/iptables/rules.v4 2>/dev/null && ok "iptables 规则已重新持久化（rules.v4 已同步）" || warn "iptables-save 失败，重启后旧规则可能复活"
+    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+fi
 
 # ————————————————————————————————————————————————————————————————
 # 7. 清理 nftables 规则

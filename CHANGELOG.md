@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-05
+
+### 🐛 修复
+- **14 处 raw 链接 404** — README/SKILL/脚本注释中的 `raw.githubusercontent.com/ccAzy/ACVPN/main/` 全部失效（默认分支为 master），改为将默认分支重命名为 main，链接零改动自然生效
+- **cleanup 漏清 acvpn-rss.service** — 优化脚本注册的 RSS 多队列开机自启服务卸载后残留，补入 systemd unit 清理清单
+- **iptables 清理后未重新持久化** — rules.v4 残留旧 DNAT 规则，重启后端口跳跃规则复活；清理后重新 iptables-save 同步
+- **README/SKILL UTF-8 BOM** — 移除文档 BOM，脚本 BOM 此前已修
+
+
 ## 2026-08-01
 
 ### 🗑️ 移除

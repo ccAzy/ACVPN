@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="https://img.shields.io/badge/license-GPLv3-green" alt="license">
   <img src="https://img.shields.io/badge/platform-Debian%2FUbuntu-orange" alt="platform">
   <img src="https://img.shields.io/badge/kernel-BBRv3--max-blue" alt="bbrv3">

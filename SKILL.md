@@ -1,4 +1,4 @@
-﻿---
+---
 name: ACVPN
 description: >
   基于甬哥 yonggekkk/sing-box-yg 二次开发的全自动部署指南。原项目: https://github.com/yonggekkk/sing-box-yg
