@@ -57,6 +57,19 @@ else
     warn "modinfo 不可用，跳过 BBRv3 检测"
 fi
 
+# 网卡卸载/优化状态（ethtool 可用时）
+if command -v ethtool >/dev/null 2>&1; then
+    IFACE=$(ip route 2>/dev/null | awk '/default/ {print $5; exit}')
+    if [ -n "$IFACE" ]; then
+        if ethtool -k "$IFACE" 2>/dev/null | grep -q 'tx-udp-segmentation: on'; then
+            ok "UDP 分段卸载已开启（Hy2/Tuic 大包性能）"
+            PASS=$((PASS + 1))
+        else
+            warn "UDP 分段卸载未开启或驱动不支持"
+        fi
+    fi
+fi
+
 # ————————————————————————————————————————————————————————————————
 # 2. sing-box 进程
 # ————————————————————————————————————————————————————————————————

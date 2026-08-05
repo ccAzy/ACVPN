@@ -268,6 +268,16 @@ apply_sysctl() {
         CT_MAX=131072         # <2GB: 13万条（约 46MB，512MB 小内存 VPS 友好）
     fi
 
+    # TCP 内存压力阈值（页单位）：tcp_rmem/wmem 上限已放大，tcp_mem 不跟上会在高负载下触发窗口收缩
+    local TCP_MEM
+    if [ "$mem_mb" -ge 8192 ]; then
+        TCP_MEM="131072 524288 2097152"   # ≥8GB: 约 8GB
+    elif [ "$mem_mb" -ge 2048 ]; then
+        TCP_MEM="65536 262144 1048576"    # 2-8GB: 约 4GB
+    else
+        TCP_MEM="16384 65536 262144"      # <2GB: 约 1GB（512MB 小内存 VPS 友好）
+    fi
+
     cat > /etc/sysctl.d/99-ACVPN-brutal.conf << SYSCTL
 # ACVPN 暴力网络优化
 # ── TCP 传输 ──
@@ -314,6 +324,17 @@ net.netfilter.nf_conntrack_tcp_timeout_established = 1200
 net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
 net.netfilter.nf_conntrack_udp_timeout = 30
 net.netfilter.nf_conntrack_udp_timeout_stream = 120
+# ── 丢包恢复 / 窗口（低延迟） ──
+net.ipv4.tcp_app_win = 0
+net.ipv4.tcp_early_retrans = 3
+net.ipv4.tcp_thin_linear_timeouts = 1
+net.ipv4.tcp_retrans_collapse = 0
+net.ipv4.tcp_rfc1337 = 1
+net.ipv4.tcp_dsack = 1
+net.ipv4.tcp_comp_sack_nr = 3
+# ── TCP 内存压力阈值（页单位，按内存分级；防高负载下窗口收缩） ──
+net.ipv4.tcp_mem = ${TCP_MEM}
+net.core.optmem_max = 204800
 SYSCTL
 
     sysctl --system >/dev/null 2>&1 || warn "sysctl 应用部分失败，请手动检查 /etc/sysctl.d/"
@@ -466,6 +487,32 @@ ensure_grub_boot() {
         info "GRUB_DEFAULT=$gd，BBRv3 位于 index $target；若重启未进新内核，手动将 GRUB_DEFAULT 改为 $target"
     fi
 }
+# ── 网卡深度优化（ethtool：环形缓冲/硬件卸载/中断合并） ──
+# 尽力降级：虚拟网卡（virtio 等）不支持的项自动跳过，不阻断流程
+apply_ethtool() {
+    command -v ethtool >/dev/null 2>&1 || { info "ethtool 未安装，跳过网卡深度优化"; return 0; }
+    local iface
+    iface=$(ip route 2>/dev/null | awk '/default/ {print $5; exit}' || true)
+    if [ -z "$iface" ] || [ ! -d "/sys/class/net/$iface" ]; then
+        warn "无法识别默认网卡，跳过 ethtool"; return 1
+    fi
+
+    # 1) 环形缓冲区扩容（尽力：虚拟网卡通常不支持，失败无妨）
+    ethtool -G "$iface" rx 4096 tx 4096 2>/dev/null && ok "网卡 $iface 环形缓冲扩至 4096" || true
+
+    # 2) 硬件卸载：校验和 / 分段 / 聚合（virtio 默认已开，重复设置无害）
+    ethtool -K "$iface" tx-checksumming on rx-checksumming on 2>/dev/null || true
+    ethtool -K "$iface" tso on gso on gro on 2>/dev/null || true
+    # UDP 分段卸载：Hysteria2/Tuic 大 UDP 包的关键优化（virtio_net 支持）
+    ethtool -K "$iface" tx-udp-segmentation on 2>/dev/null && ok "UDP 分段卸载已开启（Hy2/Tuic 大包性能）" || true
+
+    # 3) 中断合并：关闭自适应、固定 16us（低延迟优先；realtek/intel 网卡有效）
+    ethtool -C "$iface" adaptive-rx off adaptive-tx off 2>/dev/null || true
+    ethtool -C "$iface" rx-usecs 16 tx-usecs 16 2>/dev/null || true
+
+    ok "ethtool 深度优化完成（环形缓冲/硬件卸载/中断合并，不支持的项已自动跳过）"
+}
+
 # ════════════════════════════════════════
 # 主流程
 # ════════════════════════════════════════
@@ -510,6 +557,7 @@ fi
 # Step 3: 网络暴力优化（无论内核成败都执行，旧内核同样受益）
 step "3" "网络暴力优化"
 apply_sysctl
+apply_ethtool
 boost_limits
 apply_rss
 

@@ -64,7 +64,8 @@ curl -fsSL https://raw.githubusercontent.com/ccAzy/ACVPN/main/deploy_singbox.sh 
 
 | 做好的事情 | 你得到什么 |
 |---|---|
-| BBRv3-max 内核 + 40 项参数调优 | 延迟更低、吞吐更大；缓冲区/连接跟踪表按内存自动分级（小内存防 OOM） |
+| BBRv3-max 内核 + 40 项参数调优 | 延迟更低、吞吐更大；缓冲区/连接跟踪表/TCP 内存阈值按内存自动分级（小内存防 OOM） |
+| ethtool 网卡深度优化 | 环形缓冲扩至 4096、硬件卸载（含 UDP 分段——Hy2/Tuic 大包关键）、中断合并 16us；虚拟网卡不支持项自动跳过 |
 | VLESS / VMess / Hysteria2 / Tuic5 / AnyTLS | 五个协议同时在线，客户端任选 |
 | Hysteria2 端口跳跃（40000-42000）<br>Tuic5 端口跳跃（43000-45000） | ISP 限制 UDP 端口时更难封锁 |
 | Argo 临时隧道 | Cloudflare CDN 转发，隐藏 VPS 真实 IP；QUIC 传输优先（抗丢包）自动回退；保活 watchdog 掉线自动拉起 |

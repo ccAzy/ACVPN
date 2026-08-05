@@ -2,6 +2,11 @@
 
 ## 2026-08-05
 
+### 🚀 性能（新增）
+- **ethtool 网卡深度优化（apply_ethtool）** — 环形缓冲 rx/tx 4096、硬件卸载全开（校验和/TSO/GSO/GRO + **tx-udp-segmentation**——Hysteria2/Tuic 大 UDP 包的关键优化，virtio_net 支持）、中断合并关自适应固定 16us；虚拟网卡不支持的项自动跳过不阻断
+- **TCP 丢包恢复/窗口参数** — tcp_app_win=0（最大窗口）、tcp_early_retrans=3（TLP 尾丢包探测）、tcp_thin_linear_timeouts、tcp_retrans_collapse=0、tcp_rfc1337、tcp_dsack、tcp_comp_sack_nr=3
+- **tcp_mem 按内存分级** — tcp_rmem/wmem 上限已放大但 tcp_mem 默认值会在高负载下触发窗口收缩；现按内存分级（≥8GB 约8GB / 2-8GB 约4GB / <2GB 约1GB）+ optmem_max=204800
+
 ### 🛡️ 防封（新增）
 - **防主动探测升级为动态端口防护（apply_antiprobe 重写）** — 从 sb.json 动态提取全部 inbounds 端口统一防护，不再写死 443：
   - **VMess-WS 明文端口公网封锁**（最大风险修复）— sb.sh 的 VMess-WS 是 tls=false 明文 HTTP（8080/8880 等 CF 标准端口），公网裸奔时 GFW 一探即识；现 `! -i lo DROP` 仅允许 Argo/cloudflared 本地回环访问，公网完全不可达
